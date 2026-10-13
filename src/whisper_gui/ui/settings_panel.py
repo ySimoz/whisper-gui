@@ -1,4 +1,4 @@
-"""Settings panel for Whisper model, language, hardware, and document export."""
+"""Settings panel for Whisper model, language, hardware, memory management, and export."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui.models import TranscriptionConfig
+from whisper_gui.transcriber import estimate_model_ram_mb, is_model_downloaded_on_disk
 
 SUPPORTED_LANGUAGES = [
     ("Auto-detect", None),
@@ -49,14 +51,16 @@ SUPPORTED_MODELS = [
 
 
 class SettingsPanel(QWidget):
-    """Panel configuring model parameters and document export."""
+    """Panel configuring model parameters, memory management, and document export."""
 
     settings_changed = Signal()
+    free_ram_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._custom_output_dir: Path | None = None
         self._build_ui()
+        self._update_disk_status()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -70,11 +74,18 @@ class SettingsPanel(QWidget):
 
         # Column 0: Model
         grid.addWidget(QLabel("Whisper Model:"), 0, 0)
+        model_vbox = QVBoxLayout()
+        model_vbox.setSpacing(2)
         self.combo_model = QComboBox()
         for label, model_id in SUPPORTED_MODELS:
             self.combo_model.addItem(label, model_id)
         self.combo_model.setCurrentIndex(0)  # Default large-v3-turbo
-        grid.addWidget(self.combo_model, 0, 1)
+        model_vbox.addWidget(self.combo_model)
+
+        self.lbl_disk_status = QLabel("✓ Downloaded locally")
+        self.lbl_disk_status.setStyleSheet("color: #27ae60; font-size: 10px; font-weight: bold;")
+        model_vbox.addWidget(self.lbl_disk_status)
+        grid.addLayout(model_vbox, 0, 1)
 
         # Column 1: Language
         grid.addWidget(QLabel("Language:"), 0, 2)
@@ -123,7 +134,40 @@ class SettingsPanel(QWidget):
 
         layout.addLayout(grid)
 
-        # Custom Output Directory
+        # Memory & RAM Management Row
+        mem_frame = QFrame()
+        mem_frame.setFrameShape(QFrame.StyledPanel)
+        mem_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 4px;
+            }
+        """)
+        mem_layout = QHBoxLayout(mem_frame)
+        mem_layout.setContentsMargins(8, 4, 8, 4)
+        mem_layout.setSpacing(10)
+
+        self.lbl_ram_status = QLabel("🧠 Model in RAM: None (0 MB)")
+        self.lbl_ram_status.setStyleSheet("font-size: 11px; color: #495057;")
+        mem_layout.addWidget(self.lbl_ram_status)
+
+        self.btn_free_ram = QPushButton("🧹 Free RAM (Unload Model)")
+        self.btn_free_ram.setToolTip("Removes the active model from memory and frees RAM")
+        self.btn_free_ram.setMaximumHeight(24)
+        self.btn_free_ram.setEnabled(False)
+        self.btn_free_ram.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        mem_layout.addWidget(self.btn_free_ram)
+
+        self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
+        self.chk_auto_unload.setStyleSheet("font-size: 11px; color: #6c757d;")
+        self.chk_auto_unload.setToolTip("Automatically frees model from RAM when all jobs finish")
+        mem_layout.addWidget(self.chk_auto_unload)
+        mem_layout.addStretch()
+
+        layout.addWidget(mem_frame)
+
+        # Custom Output Directory Row
         out_layout = QHBoxLayout()
         out_layout.setSpacing(6)
         out_lbl = QLabel("Output Folder:")
@@ -146,16 +190,45 @@ class SettingsPanel(QWidget):
         layout.addLayout(out_layout)
 
         # Connect signals
-        self.combo_model.currentIndexChanged.connect(self._on_setting_changed)
+        self.combo_model.currentIndexChanged.connect(self._on_model_selected)
         self.combo_lang.currentIndexChanged.connect(self._on_setting_changed)
         self.combo_device.currentIndexChanged.connect(self._on_device_changed)
         self.combo_compute.currentIndexChanged.connect(self._on_setting_changed)
         self.spin_threads.valueChanged.connect(self._on_setting_changed)
         self.chk_vad.toggled.connect(self._on_setting_changed)
         self.chk_timestamps.toggled.connect(self._on_setting_changed)
+        self.chk_auto_unload.toggled.connect(self._on_setting_changed)
+        self.btn_free_ram.clicked.connect(self.free_ram_requested.emit)
 
         self.btn_browse_dir.clicked.connect(self._choose_output_dir)
         self.btn_clear_dir.clicked.connect(self._reset_output_dir)
+
+    def _on_model_selected(self) -> None:
+        self._update_disk_status()
+        self._on_setting_changed()
+
+    def _update_disk_status(self) -> None:
+        model_name = str(self.combo_model.currentData())
+        is_downloaded = is_model_downloaded_on_disk(model_name)
+        est_mb = estimate_model_ram_mb(model_name)
+        if is_downloaded:
+            self.lbl_disk_status.setText(f"✓ Downloaded on disk (Instant load, ~{est_mb}MB RAM)")
+            self.lbl_disk_status.setStyleSheet("color: #27ae60; font-size: 10px; font-weight: bold;")
+        else:
+            self.lbl_disk_status.setText(f"📥 Downloads once on first run (~{est_mb}MB)")
+            self.lbl_disk_status.setStyleSheet("color: #e67e22; font-size: 10px; font-weight: bold;")
+
+    def set_ram_status(self, is_loaded: bool, model_name: str | None = None) -> None:
+        """Update the RAM display badge and enable/disable the Free RAM button."""
+        if is_loaded and model_name:
+            est_mb = estimate_model_ram_mb(model_name)
+            self.lbl_ram_status.setText(f"🧠 Model in RAM: {model_name} (~{est_mb} MB)")
+            self.lbl_ram_status.setStyleSheet("font-size: 11px; color: #1a5276; font-weight: bold;")
+            self.btn_free_ram.setEnabled(True)
+        else:
+            self.lbl_ram_status.setText("🧠 Model in RAM: None (0 MB)")
+            self.lbl_ram_status.setStyleSheet("font-size: 11px; color: #495057;")
+            self.btn_free_ram.setEnabled(False)
 
     def _on_device_changed(self) -> None:
         device = self.combo_device.currentData()
@@ -192,4 +265,5 @@ class SettingsPanel(QWidget):
             beam_size=5,
             include_timestamps_in_docx=self.chk_timestamps.isChecked(),
             output_dir=self._custom_output_dir,
+            auto_unload_model=self.chk_auto_unload.isChecked(),
         )

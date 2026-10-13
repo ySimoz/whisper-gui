@@ -1,4 +1,4 @@
-"""Faster-Whisper model loading and streaming transcription."""
+"""Faster-Whisper model loading, disk caching, RAM management, and streaming transcription."""
 
 from __future__ import annotations
 
@@ -13,13 +13,58 @@ from faster_whisper import WhisperModel
 from whisper_gui.audio_utils import CancelledError
 from whisper_gui.models import TranscriptSegment, TranscriptionConfig, TranscriptionResult
 
+MODEL_RAM_ESTIMATES = {
+    "large-v3-turbo": 1500,
+    "large-v3": 3000,
+    "medium": 1500,
+    "small": 500,
+    "base": 200,
+    "tiny": 75,
+}
+
+
+def estimate_model_ram_mb(model_name: str) -> int:
+    """Return estimated RAM usage in MB for the model when loaded."""
+    return MODEL_RAM_ESTIMATES.get(model_name, 1000)
+
+
+def is_model_downloaded_on_disk(model_name: str) -> bool:
+    """Check if the given Whisper model is already stored locally on disk in HuggingFace cache."""
+    try:
+        from faster_whisper.utils import _MODELS
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        repo_id = _MODELS.get(model_name, model_name)
+        folder_name = "models--" + repo_id.replace("/", "--")
+        local_dir = Path(HF_HUB_CACHE) / folder_name
+
+        if local_dir.is_dir():
+            snapshots = local_dir / "snapshots"
+            if snapshots.is_dir() and any(snapshots.iterdir()):
+                return True
+        return False
+    except Exception:
+        return False
+
 
 class Transcriber:
-    """Manages the faster-whisper model and streaming transcription execution."""
+    """Manages the faster-whisper model, memory caching, and streaming transcription execution."""
 
     def __init__(self) -> None:
         self._current_model: WhisperModel | None = None
         self._cached_config_key: tuple[str, str, str, int] | None = None
+
+    @property
+    def is_loaded(self) -> bool:
+        """Returns True if a model is currently resident in RAM."""
+        return self._current_model is not None
+
+    @property
+    def loaded_model_name(self) -> str | None:
+        """Returns the name of the model currently resident in RAM, or None."""
+        if self._cached_config_key:
+            return self._cached_config_key[0]
+        return None
 
     def get_or_load_model(
         self,
@@ -29,17 +74,18 @@ class Transcriber:
         cpu_threads: int = 6,
         on_status: Callable[[str], None] | None = None,
     ) -> WhisperModel:
-        """Returns cached model if matching configuration, or loads/downloads it."""
+        """Returns cached in-RAM model if configuration matches, or loads it from local disk."""
         key = (model_name, device, compute_type, cpu_threads)
         if self._current_model is not None and self._cached_config_key == key:
             return self._current_model
 
         if on_status is not None:
-            on_status(f"Loading Whisper model '{model_name}' on {device} ({compute_type})...")
+            is_cached = is_model_downloaded_on_disk(model_name)
+            desc = "local disk" if is_cached else "HuggingFace (downloading first time)"
+            on_status(f"Loading '{model_name}' from {desc} on {device} ({compute_type})...")
 
-        # Free previous model memory if any
-        self._current_model = None
-        gc.collect()
+        # Unload previous model before loading new one to avoid double RAM usage
+        self.unload_model()
 
         model = WhisperModel(
             model_name,
@@ -53,8 +99,10 @@ class Transcriber:
         return model
 
     def unload_model(self) -> None:
-        """Unload active model to free RAM."""
-        self._current_model = None
+        """Unload active model from memory and explicitly invoke garbage collection to free RAM."""
+        if self._current_model is not None:
+            del self._current_model
+            self._current_model = None
         self._cached_config_key = None
         gc.collect()
 
@@ -68,20 +116,7 @@ class Transcriber:
         on_status: Callable[[str], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> TranscriptionResult:
-        """Execute transcription on audio_file and stream segments.
-
-        Args:
-            audio_file: Path to audio file to transcribe (e.g. the 16kHz mono WAV slice).
-            config: Transcription settings.
-            slice_duration: Anticipated length of this audio slice in seconds.
-            on_segment: Callback invoked for each new transcribed segment.
-            on_progress: Callback invoked with (current_audio_time_sec, total_slice_sec).
-            on_status: Callback invoked with human-readable status text.
-            should_stop: Callback checked periodically; aborts if returning True.
-
-        Returns:
-            TranscriptionResult with all segments, full text, and metrics.
-        """
+        """Execute transcription on audio_file and stream segments."""
         model = self.get_or_load_model(
             model_name=config.model_name,
             device=config.device,

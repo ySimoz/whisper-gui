@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self.range_selector.range_changed.connect(self._on_range_changed)
         self.btn_start.clicked.connect(self._on_start_clicked)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
+        self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
 
         # Initial state
         self.range_selector.set_track(None)
@@ -309,10 +310,17 @@ class MainWindow(QMainWindow):
     def _on_worker_track_started(self, track_id: str) -> None:
         self.track_list.refresh_track_display(track_id)
 
+    def _on_free_ram_clicked(self) -> None:
+        self.transcriber.unload_model()
+        self.settings_panel.set_ram_status(False)
+        self.status_bar.showMessage("Whisper model unloaded from memory (RAM freed).")
+
     def _on_worker_status_updated(self, track_id: str, message: str) -> None:
         self.transcript_view.set_status(message)
         self.status_bar.showMessage(message)
         self.track_list.refresh_track_display(track_id)
+        if self.transcriber.is_loaded:
+            self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_segment_received(self, track_id: str, segment: TranscriptSegment) -> None:
         self.transcript_view.append_segment(segment)
@@ -325,6 +333,8 @@ class MainWindow(QMainWindow):
         if result.docx_path:
             self.transcript_view.set_completed_docx(result.docx_path)
             self.status_bar.showMessage(f"Completed! Document saved: {result.docx_path.name}")
+        if self.transcriber.is_loaded:
+            self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
         self.track_list.refresh_track_display(track_id)
@@ -333,7 +343,15 @@ class MainWindow(QMainWindow):
 
     def _on_worker_finished(self) -> None:
         self._reset_ui_state()
-        self.status_bar.showMessage("All tracks processed successfully!")
+        if self.settings_panel.chk_auto_unload.isChecked():
+            self.transcriber.unload_model()
+            self.settings_panel.set_ram_status(False)
+            self.status_bar.showMessage("All tracks processed and model unloaded from RAM.")
+        else:
+            if self.transcriber.is_loaded:
+                self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
+            self.status_bar.showMessage("All tracks processed successfully!")
+
         QMessageBox.information(
             self,
             "Done",

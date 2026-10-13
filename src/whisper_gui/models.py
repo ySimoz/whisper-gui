@@ -120,6 +120,7 @@ class TranscriptionConfig:
     beam_size: int = 5
     include_timestamps_in_docx: bool = True
     output_dir: Path | None = None
+    auto_unload_model: bool = False
 
 
 @dataclass
