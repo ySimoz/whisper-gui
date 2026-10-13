@@ -1,0 +1,313 @@
+"""Main window for Whisper GUI desktop application."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QFont, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from whisper_gui import __version__
+from whisper_gui.audio_utils import check_ffmpeg_installed
+from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
+from whisper_gui.transcriber import Transcriber
+from whisper_gui.ui.range_selector import RangeSelectorWidget
+from whisper_gui.ui.settings_panel import SettingsPanel
+from whisper_gui.ui.track_list_widget import TrackListWidget
+from whisper_gui.ui.transcript_view import TranscriptView
+from whisper_gui.worker import TranscriptionWorker
+
+
+class MainWindow(QMainWindow):
+    """Main application window for Whisper GUI."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle(f"Whisper GUI - Audio Transcription & Docx Export v{__version__}")
+        self.resize(1180, 780)
+        self.setMinimumSize(880, 580)
+
+        # Transcriber singleton for caching models
+        self.transcriber = Transcriber()
+        self.current_worker: TranscriptionWorker | None = None
+
+        self._build_ui()
+        self._check_dependencies()
+
+    def _build_ui(self) -> None:
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+        main_vbox = QVBoxLayout(central_widget)
+        main_vbox.setSpacing(10)
+        main_vbox.setContentsMargins(14, 14, 14, 10)
+
+        # Header bar
+        header_frame = QFrame()
+        header_frame.setFrameShape(QFrame.StyledPanel)
+        header_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 6px;
+                padding: 4px 8px;
+            }
+        """)
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(8, 6, 8, 6)
+
+        title_lbl = QLabel("🎙️ Whisper Audio Transcriber")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title_lbl.setFont(title_font)
+        title_lbl.setStyleSheet("color: #1a5276;")
+        header_layout.addWidget(title_lbl)
+
+        header_layout.addStretch()
+
+        # Primary Action Buttons
+        self.btn_start = QPushButton("▶ Start Transcription")
+        self.btn_start.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 8px 18px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
+        header_layout.addWidget(self.btn_start)
+
+        self.btn_stop = QPushButton("⏹ Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.setStyleSheet("""
+            QPushButton {
+                background-color: #c0392b;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 8px 18px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #e74c3c;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
+        header_layout.addWidget(self.btn_stop)
+
+        main_vbox.addWidget(header_frame)
+
+        # Main splitter: Left side = Track list, Right side = Slicing + Settings + Transcript
+        splitter = QSplitter(Qt.Horizontal)
+
+        # Left pane: Track list
+        self.track_list = TrackListWidget()
+        splitter.addWidget(self.track_list)
+
+        # Right pane: vertical layout for RangeSelector + Settings + TranscriptView
+        right_container = QWidget()
+        right_vbox = QVBoxLayout(right_container)
+        right_vbox.setContentsMargins(0, 0, 0, 0)
+        right_vbox.setSpacing(10)
+
+        # Top of right pane: Range Selector (ffmpeg slicing)
+        self.range_selector = RangeSelectorWidget()
+        right_vbox.addWidget(self.range_selector)
+
+        # Middle of right pane: Settings panel
+        self.settings_panel = SettingsPanel()
+        right_vbox.addWidget(self.settings_panel)
+
+        # Bottom of right pane: Live Transcript & Export view
+        self.transcript_view = TranscriptView()
+        right_vbox.addWidget(self.transcript_view, stretch=1)
+
+        splitter.addWidget(right_container)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 6)
+
+        main_vbox.addWidget(splitter, stretch=1)
+
+        # Status Bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Ready. Add audio files to begin.")
+
+        # Wire Signals
+        self.track_list.track_selected.connect(self._on_track_selected)
+        self.range_selector.range_changed.connect(self._on_range_changed)
+        self.btn_start.clicked.connect(self._on_start_clicked)
+        self.btn_stop.clicked.connect(self._on_stop_clicked)
+
+        # Initial state
+        self.range_selector.set_track(None)
+
+    def _check_dependencies(self) -> None:
+        ok, msg = check_ffmpeg_installed()
+        if not ok:
+            QMessageBox.critical(
+                self,
+                "FFmpeg Error",
+                f"FFmpeg or FFprobe could not be found or executed:\n\n{msg}\n\nPlease install ffmpeg on your system.",
+            )
+            self.status_bar.showMessage(f"Error: {msg}")
+        else:
+            self.status_bar.showMessage(f"Ready. {msg.split(',')[0]}")
+
+    def _on_track_selected(self, track: AudioTrack | None) -> None:
+        self.range_selector.set_track(track)
+        if track and track.result and track.result.docx_path:
+            self.transcript_view.set_completed_docx(track.result.docx_path)
+            self.transcript_view.set_status(f"Completed ({track.result.speed_factor:.1f}x speed)")
+            self.transcript_view.set_progress(100)
+
+    def _on_range_changed(self, start_sec: float, end_sec: float) -> None:
+        track = self.track_list.get_selected_track()
+        if track:
+            self.track_list.refresh_track_display(track.id)
+
+    def _on_start_clicked(self) -> None:
+        tracks = self.track_list.get_tracks()
+        if not tracks:
+            QMessageBox.information(
+                self,
+                "No Audio Files",
+                "Please add at least one audio file to transcribe.",
+            )
+            return
+
+        # If user has a selected track that isn't completed, start with that or all pending tracks
+        pending_tracks = [t for t in tracks if t.status != TrackStatus.COMPLETED]
+        if not pending_tracks:
+            # All are already completed, ask if user wants to re-transcribe
+            reply = QMessageBox.question(
+                self,
+                "Re-transcribe?",
+                "All tracks in the queue are already completed. Do you want to transcribe them again?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                for t in tracks:
+                    t.status = TrackStatus.QUEUED
+                    t.status_message = "Queued"
+                    self.track_list.refresh_track_display(t.id)
+                pending_tracks = tracks
+            else:
+                return
+
+        config = self.settings_panel.get_config()
+        self.transcript_view.clear_view()
+
+        # Update UI state
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.track_list.setEnabled(False)
+        self.range_selector.setEnabled(False)
+        self.settings_panel.setEnabled(False)
+        self.status_bar.showMessage("Transcription running in background...")
+
+        # Create worker
+        self.current_worker = TranscriptionWorker(
+            tracks=pending_tracks,
+            transcription_config=config,
+            transcriber=self.transcriber,
+            parent=self,
+        )
+
+        # Connect worker signals
+        self.current_worker.track_started.connect(self._on_worker_track_started)
+        self.current_worker.status_updated.connect(self._on_worker_status_updated)
+        self.current_worker.segment_received.connect(self._on_worker_segment_received)
+        self.current_worker.progress_updated.connect(self._on_worker_progress_updated)
+        self.current_worker.track_completed.connect(self._on_worker_track_completed)
+        self.current_worker.track_error.connect(self._on_worker_track_error)
+        self.current_worker.batch_finished.connect(self._on_worker_finished)
+        self.current_worker.cancelled.connect(self._on_worker_cancelled)
+
+        self.current_worker.start()
+
+    def _on_stop_clicked(self) -> None:
+        if self.current_worker and self.current_worker.isRunning():
+            self.transcript_view.set_status("Stopping transcription...")
+            self.status_bar.showMessage("Stopping transcription process...")
+            self.current_worker.request_stop()
+            self.btn_stop.setEnabled(False)
+
+    def _on_worker_track_started(self, track_id: str) -> None:
+        self.track_list.refresh_track_display(track_id)
+
+    def _on_worker_status_updated(self, track_id: str, message: str) -> None:
+        self.transcript_view.set_status(message)
+        self.status_bar.showMessage(message)
+        self.track_list.refresh_track_display(track_id)
+
+    def _on_worker_segment_received(self, track_id: str, segment: TranscriptSegment) -> None:
+        self.transcript_view.append_segment(segment)
+
+    def _on_worker_progress_updated(self, track_id: str, percent: int, time_str: str) -> None:
+        self.transcript_view.set_progress(percent, time_str)
+
+    def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
+        self.track_list.refresh_track_display(track_id)
+        if result.docx_path:
+            self.transcript_view.set_completed_docx(result.docx_path)
+            self.status_bar.showMessage(f"Completed! Document saved: {result.docx_path.name}")
+
+    def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
+        self.track_list.refresh_track_display(track_id)
+        self.transcript_view.set_status(f"Error: {error_msg}")
+        self.status_bar.showMessage(f"Error on track: {error_msg}")
+
+    def _on_worker_finished(self) -> None:
+        self._reset_ui_state()
+        self.status_bar.showMessage("All tracks processed successfully!")
+        QMessageBox.information(
+            self,
+            "Done",
+            "Transcription completed! You can now open your Word (.docx) document.",
+        )
+
+    def _on_worker_cancelled(self) -> None:
+        self._reset_ui_state()
+        self.status_bar.showMessage("Transcription stopped by user.")
+
+    def _reset_ui_state(self) -> None:
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.track_list.setEnabled(True)
+        self.range_selector.setEnabled(True)
+        self.settings_panel.setEnabled(True)
+        self.current_worker = None
+
+    def closeEvent(self, event) -> None:
+        """Ensure background threads are safely terminated upon exit."""
+        if self.current_worker and self.current_worker.isRunning():
+            self.current_worker.request_stop()
+            self.current_worker.wait(3000)
+        event.accept()
