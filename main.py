@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Launcher for Whisper GUI application."""
+"""Launcher for Whisper GUI application with bundling support."""
 
+import multiprocessing
 import sys
 from pathlib import Path
+
+# Multiprocessing freeze support for packaged binaries
+multiprocessing.freeze_support()
 
 # Ensure src/ is on sys.path
 src_dir = Path(__file__).resolve().parent / "src"

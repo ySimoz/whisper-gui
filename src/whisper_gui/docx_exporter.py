@@ -223,5 +223,11 @@ def export_transcript_to_docx(
                 p.paragraph_format.line_spacing = 1.15
                 p.paragraph_format.space_after = Pt(8)
 
-    doc.save(str(out_file))
+    try:
+        doc.save(str(out_file))
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Cannot save Word document '{out_file.name}': The file is currently open or locked in another program "
+            f"(such as Microsoft Word or LibreOffice). Please close it and try again."
+        ) from exc
     return out_file

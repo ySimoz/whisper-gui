@@ -1,4 +1,4 @@
-"""Track queue widget supporting file picking, drag-and-drop, and status display."""
+"""Track queue widget supporting file/folder picking, drag-and-drop, and status display."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ STATUS_COLORS = {
 
 
 class TrackListWidget(QGroupBox):
-    """Audio tracks table supporting file selection, drag and drop, and tracking."""
+    """Audio tracks table supporting file selection, directory scanning, and drag-and-drop."""
 
     track_selected = Signal(object)  # Emits AudioTrack or None
     track_count_changed = Signal(int)
@@ -54,19 +54,22 @@ class TrackListWidget(QGroupBox):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
 
         # Action toolbar
         toolbar = QHBoxLayout()
-        self.btn_add_files = QPushButton("➕ Add Audio Files")
+        toolbar.setSpacing(6)
+
+        self.btn_add_files = QPushButton("➕ Add Files")
         self.btn_add_files.setStyleSheet("""
             QPushButton {
                 background-color: #27ae60;
                 color: white;
                 font-weight: bold;
-                padding: 6px 12px;
+                padding: 4px 10px;
                 border-radius: 4px;
+                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #2ecc71;
@@ -74,24 +77,37 @@ class TrackListWidget(QGroupBox):
         """)
         toolbar.addWidget(self.btn_add_files)
 
-        self.btn_remove = QPushButton("➖ Remove Selected")
+        self.btn_add_folder = QPushButton("📁 Add Folder")
+        self.btn_add_folder.setToolTip("Scan a directory recursively for all audio files")
+        self.btn_add_folder.setStyleSheet("""
+            QPushButton {
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+        """)
+        toolbar.addWidget(self.btn_add_folder)
+
+        self.btn_remove = QPushButton("Remove")
+        self.btn_remove.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         toolbar.addWidget(self.btn_remove)
 
-        self.btn_clear = QPushButton("Clear All")
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         toolbar.addWidget(self.btn_clear)
 
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
         # Drop info banner
-        self.drop_hint = QLabel("💡 Tip: Drag and drop audio files directly into this area")
+        self.drop_hint = QLabel("Drag & drop audio files or folders here")
         self.drop_hint.setStyleSheet("color: #7f8c8d; font-size: 11px; font-style: italic;")
         layout.addWidget(self.drop_hint)
 
         # Tracks Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Track Name", "Duration / Slice", "Status", "Word Document (.docx)"])
+        self.table.setHorizontalHeaderLabels(["Track Name", "Length / Slice", "Status", "Word Document (.docx)"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -99,11 +115,14 @@ class TrackListWidget(QGroupBox):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(26)
         self.table.setStyleSheet("""
             QTableWidget {
                 border: 1px solid #dee2e6;
                 border-radius: 4px;
                 gridline-color: #e9ecef;
+                font-size: 12px;
             }
             QTableWidget::item:selected {
                 background-color: #d4e6f1;
@@ -114,6 +133,7 @@ class TrackListWidget(QGroupBox):
 
         # Connect signals
         self.btn_add_files.clicked.connect(self._on_add_files_clicked)
+        self.btn_add_folder.clicked.connect(self._on_add_folder_clicked)
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_clear.clicked.connect(self.clear_all)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -126,15 +146,14 @@ class TrackListWidget(QGroupBox):
 
     def dropEvent(self, event: QDropEvent) -> None:
         urls = event.mimeData().urls()
-        file_paths: list[Path] = []
+        paths: list[Path] = []
         for url in urls:
             if url.isLocalFile():
                 p = Path(url.toLocalFile()).resolve()
-                if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
-                    file_paths.append(p)
+                paths.append(p)
 
-        if file_paths:
-            self.add_audio_files(file_paths)
+        if paths:
+            self.add_audio_files(paths)
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -150,12 +169,34 @@ class TrackListWidget(QGroupBox):
         if files:
             self.add_audio_files([Path(f) for f in files])
 
+    def _on_add_folder_clicked(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Audio Files")
+        if folder:
+            self.add_audio_files([Path(folder)])
+
     def add_audio_files(self, paths: list[Path]) -> None:
-        """Probe and add new audio files to the queue."""
-        error_files: list[str] = []
+        """Probe and add new audio files to the queue, scanning directories recursively."""
+        # Expand directories to find all contained audio files
+        resolved_files: list[Path] = []
         for p in paths:
+            p = Path(p).resolve()
+            if p.is_dir():
+                for ext in SUPPORTED_AUDIO_EXTENSIONS:
+                    resolved_files.extend(p.rglob(f"*{ext}"))
+                    resolved_files.extend(p.rglob(f"*{ext.upper()}"))
+            elif p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+                resolved_files.append(p)
+
+        # Deduplicate preserving order
+        unique_files: list[Path] = []
+        for f in resolved_files:
+            if f not in unique_files:
+                unique_files.append(f)
+
+        error_files: list[str] = []
+        for p in unique_files:
             if str(p) in [str(t.file_path) for t in self._tracks]:
-                continue  # Already in list
+                continue  # Already in queue
 
             try:
                 info = get_audio_info(p)
@@ -172,7 +213,7 @@ class TrackListWidget(QGroupBox):
             QMessageBox.warning(
                 self,
                 "Warning",
-                f"Some files could not be loaded:\n" + "\n".join(error_files[:5]),
+                f"Some audio files could not be loaded:\n" + "\n".join(error_files[:5]),
             )
 
         if self._tracks and self.table.currentRow() == -1:

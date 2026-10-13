@@ -1,4 +1,4 @@
-"""Interactive widget for choosing the audio duration and range to transcribe."""
+"""Interactive widget for choosing audio duration and range to transcribe."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from PySide6.QtCore import QTime, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -21,13 +20,13 @@ from whisper_gui.audio_utils import format_seconds
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode
 
 
-class RangeSelectorWidget(QGroupBox):
+class RangeSelectorWidget(QWidget):
     """Allows user to specify whether to transcribe full audio or a sliced segment."""
 
     range_changed = Signal(float, float)  # start_sec, end_sec
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Audio Length & Slicing (ffmpeg)", parent)
+        super().__init__(parent)
         self._total_duration: float = 0.0
         self._current_track: AudioTrack | None = None
         self._updating_ui: bool = False
@@ -37,82 +36,117 @@ class RangeSelectorWidget(QGroupBox):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        # Mode selection
-        mode_layout = QHBoxLayout()
+        # Top row: Mode Selection + Presets in a compact horizontal layout
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+
         self.btn_group_mode = QButtonGroup(self)
-
         self.radio_full = QRadioButton("Full Audio")
-        self.radio_custom = QRadioButton("Custom Time Range")
+        self.radio_custom = QRadioButton("Custom Range")
         self.radio_full.setChecked(True)
 
         self.btn_group_mode.addButton(self.radio_full, 0)
         self.btn_group_mode.addButton(self.radio_custom, 1)
 
-        mode_layout.addWidget(self.radio_full)
-        mode_layout.addWidget(self.radio_custom)
-        mode_layout.addStretch()
-        layout.addLayout(mode_layout)
+        top_row.addWidget(self.radio_full)
+        top_row.addWidget(self.radio_custom)
+        top_row.addSpacing(12)
 
         # Quick preset buttons
-        preset_layout = QHBoxLayout()
-        preset_layout.addWidget(QLabel("Quick Presets:"))
-        self.btn_preset_5m = QPushButton("First 5m")
-        self.btn_preset_10m = QPushButton("First 10m")
-        self.btn_preset_15m = QPushButton("First 15m")
-        self.btn_preset_30m = QPushButton("First 30m")
-        self.btn_preset_full = QPushButton("Reset Full")
+        preset_lbl = QLabel("Presets:")
+        preset_lbl.setStyleSheet("color: #6c757d; font-size: 11px;")
+        top_row.addWidget(preset_lbl)
+
+        self.btn_preset_5m = QPushButton("5m")
+        self.btn_preset_10m = QPushButton("10m")
+        self.btn_preset_15m = QPushButton("15m")
+        self.btn_preset_30m = QPushButton("30m")
+        self.btn_preset_full = QPushButton("Full")
+
+        btn_style = """
+            QPushButton {
+                padding: 2px 7px;
+                font-size: 11px;
+                border: 1px solid #ced4da;
+                border-radius: 3px;
+                background-color: #f8f9fa;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+            }
+        """
 
         for btn in (self.btn_preset_5m, self.btn_preset_10m, self.btn_preset_15m, self.btn_preset_30m, self.btn_preset_full):
-            btn.setMaximumHeight(26)
-            preset_layout.addWidget(btn)
+            btn.setStyleSheet(btn_style)
+            btn.setMaximumHeight(22)
+            top_row.addWidget(btn)
 
-        preset_layout.addStretch()
-        layout.addLayout(preset_layout)
+        top_row.addStretch()
+        layout.addLayout(top_row)
 
-        # Time inputs container
+        # Middle row: Time inputs container
         self.time_container = QFrame()
         self.time_container.setFrameShape(QFrame.StyledPanel)
+        self.time_container.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 4px;
+            }
+        """)
         time_layout = QHBoxLayout(self.time_container)
-        time_layout.setContentsMargins(8, 6, 8, 6)
+        time_layout.setContentsMargins(8, 4, 8, 4)
+        time_layout.setSpacing(8)
 
-        time_layout.addWidget(QLabel("Start:"))
+        lbl_start = QLabel("Start:")
+        lbl_start.setStyleSheet("font-weight: bold; font-size: 11px;")
+        time_layout.addWidget(lbl_start)
+
         self.time_start = QTimeEdit()
         self.time_start.setDisplayFormat("HH:mm:ss")
         self.time_start.setTime(QTime(0, 0, 0))
+        self.time_start.setMaximumWidth(85)
         time_layout.addWidget(self.time_start)
 
-        time_layout.addSpacing(16)
-        time_layout.addWidget(QLabel("End:"))
+        time_layout.addSpacing(8)
+        lbl_end = QLabel("End:")
+        lbl_end.setStyleSheet("font-weight: bold; font-size: 11px;")
+        time_layout.addWidget(lbl_end)
+
         self.time_end = QTimeEdit()
         self.time_end.setDisplayFormat("HH:mm:ss")
         self.time_end.setTime(QTime(0, 0, 0))
+        self.time_end.setMaximumWidth(85)
         time_layout.addWidget(self.time_end)
 
-        time_layout.addSpacing(20)
+        time_layout.addSpacing(12)
         self.lbl_selected_length = QLabel("Selected Length: 00:00:00")
-        self.lbl_selected_length.setStyleSheet("font-weight: bold; color: #1a5276;")
+        self.lbl_selected_length.setStyleSheet("font-weight: bold; color: #1a5276; font-size: 11px;")
         time_layout.addWidget(self.lbl_selected_length)
         time_layout.addStretch()
 
         layout.addWidget(self.time_container)
 
-        # Visual progress/range indicator slider
+        # Bottom row: Slider + position info
         slider_layout = QVBoxLayout()
+        slider_layout.setSpacing(2)
+
         self.slider_range = QSlider(Qt.Horizontal)
         self.slider_range.setRange(0, 1000)
         self.slider_range.setValue(1000)
-        self.slider_range.setToolTip("Audio length range preview")
+        self.slider_range.setToolTip("Drag to adjust ending point of transcription")
         slider_layout.addWidget(self.slider_range)
 
         self.lbl_slider_info = QLabel("Position: 00:00:00 / 00:00:00")
-        self.lbl_slider_info.setStyleSheet("color: #6c757d; font-size: 11px;")
+        self.lbl_slider_info.setStyleSheet("color: #6c757d; font-size: 10px;")
         slider_layout.addWidget(self.lbl_slider_info)
+
         layout.addLayout(slider_layout)
 
-        # Connect signals
+        # Wire Signals
         self.radio_full.toggled.connect(self._on_mode_toggled)
         self.radio_custom.toggled.connect(self._on_mode_toggled)
 
@@ -267,7 +301,7 @@ class RangeSelectorWidget(QGroupBox):
             d_str = format_seconds(dur)
             t_str = format_seconds(self._total_duration)
             self.lbl_selected_length.setText(f"Selected Length: {d_str}")
-            self.lbl_slider_info.setText(f"Range: {s_str} → {e_str} (Duration: {d_str}) / Total: {t_str}")
+            self.lbl_slider_info.setText(f"Range: {s_str} → {e_str} ({d_str}) / Total: {t_str}")
 
     @staticmethod
     def _set_qtime(time_widget: QTimeEdit, seconds: float) -> None:

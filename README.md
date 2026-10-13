@@ -101,6 +101,23 @@ whisper-gui
 
 ---
 
+## 📦 Bundling as a Standalone Application
+
+You can bundle Whisper GUI into a standalone desktop application (`.exe` on Windows, `.app` on macOS, or standalone binary on Linux) using PyInstaller:
+
+```bash
+python scripts/bundle_app.py
+```
+
+This uses the included [`whisper_gui.spec`](file:///home/simo/Documents/whisper-gui/whisper_gui.spec) configuration, which bundles all faster-whisper assets, CTranslate2 binaries, Word `.docx` templates, and PySide6 Qt libraries into `dist/WhisperGUI`.
+
+### Bundling FFmpeg (Optional)
+If you wish to distribute the app to users who do not have system `ffmpeg` installed:
+- Simply place the `ffmpeg` and `ffprobe` binaries (or `ffmpeg.exe` / `ffprobe.exe` on Windows) inside a `bin/` directory at the project root before running `python scripts/bundle_app.py`.
+- The application will automatically find and use the bundled binaries across any OS!
+
+---
+
 ## 🧪 Running Tests
 
 A full suite of unit and integration tests is included:
@@ -110,8 +127,10 @@ A full suite of unit and integration tests is included:
 ```
 
 Tests cover:
+- Cross-platform process termination and binary finding
 - Audio probing (`ffprobe`) and ffmpeg duration trimming
 - Graceful cancellation of ffmpeg processes
 - Word (`.docx`) document structure, tables, and timestamp styles
 - Qt GUI widgets (Range Selector, Settings, Track List, Transcript Viewer)
+- Non-fullscreen responsive layout scaling
 - End-to-end background worker pipeline

@@ -1,4 +1,4 @@
-"""Main window for Whisper GUI desktop application."""
+"""Main window for Whisper GUI desktop application with responsive non-fullscreen layouts."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QFont, QIcon
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -15,8 +15,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -38,8 +40,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"Whisper GUI - Audio Transcription & Docx Export v{__version__}")
-        self.resize(1180, 780)
-        self.setMinimumSize(880, 580)
+        self.resize(1100, 720)
+        self.setMinimumSize(780, 500)
 
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
@@ -52,8 +54,8 @@ class MainWindow(QMainWindow):
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_vbox = QVBoxLayout(central_widget)
-        main_vbox.setSpacing(10)
-        main_vbox.setContentsMargins(14, 14, 14, 10)
+        main_vbox.setSpacing(8)
+        main_vbox.setContentsMargins(10, 10, 10, 6)
 
         # Header bar
         header_frame = QFrame()
@@ -62,16 +64,16 @@ class MainWindow(QMainWindow):
             QFrame {
                 background-color: #f8f9fa;
                 border: 1px solid #e9ecef;
-                border-radius: 6px;
-                padding: 4px 8px;
+                border-radius: 5px;
             }
         """)
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(8, 6, 8, 6)
+        header_layout.setContentsMargins(10, 6, 10, 6)
+        header_layout.setSpacing(10)
 
         title_lbl = QLabel("🎙️ Whisper Audio Transcriber")
         title_font = QFont()
-        title_font.setPointSize(14)
+        title_font.setPointSize(13)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
         title_lbl.setStyleSheet("color: #1a5276;")
@@ -86,9 +88,9 @@ class MainWindow(QMainWindow):
                 background-color: #27ae60;
                 color: white;
                 font-weight: bold;
-                font-size: 13px;
-                padding: 8px 18px;
-                border-radius: 5px;
+                font-size: 12px;
+                padding: 6px 16px;
+                border-radius: 4px;
             }
             QPushButton:hover {
                 background-color: #2ecc71;
@@ -107,9 +109,9 @@ class MainWindow(QMainWindow):
                 background-color: #c0392b;
                 color: white;
                 font-weight: bold;
-                font-size: 13px;
-                padding: 8px 18px;
-                border-radius: 5px;
+                font-size: 12px;
+                padding: 6px 16px;
+                border-radius: 4px;
             }
             QPushButton:hover {
                 background-color: #e74c3c;
@@ -123,39 +125,82 @@ class MainWindow(QMainWindow):
 
         main_vbox.addWidget(header_frame)
 
-        # Main splitter: Left side = Track list, Right side = Slicing + Settings + Transcript
-        splitter = QSplitter(Qt.Horizontal)
+        # Main horizontal splitter: Left = Track Queue, Right = Slicing/Settings + Transcript
+        self.h_splitter = QSplitter(Qt.Horizontal)
+        self.h_splitter.setChildrenCollapsible(False)
 
         # Left pane: Track list
         self.track_list = TrackListWidget()
-        splitter.addWidget(self.track_list)
+        self.h_splitter.addWidget(self.track_list)
 
-        # Right pane: vertical layout for RangeSelector + Settings + TranscriptView
-        right_container = QWidget()
-        right_vbox = QVBoxLayout(right_container)
-        right_vbox.setContentsMargins(0, 0, 0, 0)
-        right_vbox.setSpacing(10)
+        # Right pane: Vertical splitter with Tabs on top and Live Transcript below
+        self.v_splitter = QSplitter(Qt.Vertical)
+        self.v_splitter.setChildrenCollapsible(False)
 
-        # Top of right pane: Range Selector (ffmpeg slicing)
+        # Configuration Tabs
+        self.config_tabs = QTabWidget()
+        self.config_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                background-color: #ffffff;
+            }
+            QTabBar::tab {
+                background: #e9ecef;
+                color: #495057;
+                padding: 5px 14px;
+                font-weight: bold;
+                font-size: 11px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #1a5276;
+                color: #ffffff;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #dee2e6;
+            }
+        """)
+
+        # Tab 1: Range Selector in scroll area (prevents clipping when window is shrunk)
         self.range_selector = RangeSelectorWidget()
-        right_vbox.addWidget(self.range_selector)
+        scroll_range = QScrollArea()
+        scroll_range.setWidgetResizable(True)
+        scroll_range.setFrameShape(QFrame.NoFrame)
+        scroll_range.setWidget(self.range_selector)
+        self.config_tabs.addTab(scroll_range, "✂️ Audio Trimming (ffmpeg)")
 
-        # Middle of right pane: Settings panel
+        # Tab 2: Settings Panel in scroll area
         self.settings_panel = SettingsPanel()
-        right_vbox.addWidget(self.settings_panel)
+        scroll_settings = QScrollArea()
+        scroll_settings.setWidgetResizable(True)
+        scroll_settings.setFrameShape(QFrame.NoFrame)
+        scroll_settings.setWidget(self.settings_panel)
+        self.config_tabs.addTab(scroll_settings, "⚙️ Model & Output Settings")
+
+        self.v_splitter.addWidget(self.config_tabs)
 
         # Bottom of right pane: Live Transcript & Export view
         self.transcript_view = TranscriptView()
-        right_vbox.addWidget(self.transcript_view, stretch=1)
+        self.v_splitter.addWidget(self.transcript_view)
 
-        splitter.addWidget(right_container)
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 6)
+        # Proportion settings: config tabs compact, transcript view gets majority of room
+        self.v_splitter.setStretchFactor(0, 0)
+        self.v_splitter.setStretchFactor(1, 1)
+        self.v_splitter.setSizes([160, 440])
 
-        main_vbox.addWidget(splitter, stretch=1)
+        self.h_splitter.addWidget(self.v_splitter)
+        self.h_splitter.setStretchFactor(0, 4)
+        self.h_splitter.setStretchFactor(1, 6)
+        self.h_splitter.setSizes([380, 620])
+
+        main_vbox.addWidget(self.h_splitter, stretch=1)
 
         # Status Bar
         self.status_bar = QStatusBar()
+        self.status_bar.setSizeGripEnabled(True)
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready. Add audio files to begin.")
 
@@ -174,7 +219,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(
                 self,
                 "FFmpeg Error",
-                f"FFmpeg or FFprobe could not be found or executed:\n\n{msg}\n\nPlease install ffmpeg on your system.",
+                f"FFmpeg or FFprobe could not be found or executed:\n\n{msg}\n\nPlease install ffmpeg on your system or place the binary in the application folder.",
             )
             self.status_bar.showMessage(f"Error: {msg}")
         else:
@@ -182,10 +227,13 @@ class MainWindow(QMainWindow):
 
     def _on_track_selected(self, track: AudioTrack | None) -> None:
         self.range_selector.set_track(track)
-        if track and track.result and track.result.docx_path:
-            self.transcript_view.set_completed_docx(track.result.docx_path)
-            self.transcript_view.set_status(f"Completed ({track.result.speed_factor:.1f}x speed)")
-            self.transcript_view.set_progress(100)
+        if track:
+            # Switch to trimming tab for immediate track editing
+            self.config_tabs.setCurrentIndex(0)
+            if track.result and track.result.docx_path:
+                self.transcript_view.set_completed_docx(track.result.docx_path)
+                self.transcript_view.set_status(f"Completed ({track.result.speed_factor:.1f}x speed)")
+                self.transcript_view.set_progress(100)
 
     def _on_range_changed(self, start_sec: float, end_sec: float) -> None:
         track = self.track_list.get_selected_track()
@@ -202,10 +250,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # If user has a selected track that isn't completed, start with that or all pending tracks
+        # Check pending tracks
         pending_tracks = [t for t in tracks if t.status != TrackStatus.COMPLETED]
         if not pending_tracks:
-            # All are already completed, ask if user wants to re-transcribe
             reply = QMessageBox.question(
                 self,
                 "Re-transcribe?",

@@ -164,14 +164,17 @@ class AudioTrack:
     @property
     def default_docx_path(self) -> Path:
         """Default path for the generated .docx file alongside the audio file."""
-        stem = self.file_path.stem
+        from whisper_gui.platform_utils import sanitize_filename
+        safe_stem = sanitize_filename(self.file_path.stem)
         parent = self.file_path.parent
-        return parent / f"{stem}_transcript.docx"
+        return parent / f"{safe_stem}_transcript.docx"
 
     def effective_docx_path(self, target_dir: Path | None = None) -> Path:
         """Returns the destination .docx path given an optional target directory."""
         if self.output_docx_path:
             return self.output_docx_path
+        from whisper_gui.platform_utils import sanitize_filename
+        safe_stem = sanitize_filename(self.file_path.stem)
         if target_dir:
-            return target_dir / f"{self.file_path.stem}_transcript.docx"
+            return target_dir / f"{safe_stem}_transcript.docx"
         return self.default_docx_path

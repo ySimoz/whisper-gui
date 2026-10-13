@@ -1,8 +1,7 @@
-"""Real-time streaming transcript viewer with action buttons for .docx opening and copying."""
+"""Real-time streaming transcript viewer with cross-platform actions for .docx opening and copying."""
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui.models import TranscriptSegment
+from whisper_gui.platform_utils import open_path_in_os
 
 
 class TranscriptView(QGroupBox):
@@ -32,46 +32,46 @@ class TranscriptView(QGroupBox):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        # Progress bar & status
-        prog_layout = QVBoxLayout()
+        # Progress bar & status header
         prog_header = QHBoxLayout()
         self.lbl_status = QLabel("Status: Idle")
-        self.lbl_status.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        self.lbl_status.setStyleSheet("font-weight: bold; color: #2c3e50; font-size: 12px;")
         self.lbl_metrics = QLabel("")
         self.lbl_metrics.setStyleSheet("color: #7f8c8d; font-size: 11px;")
 
         prog_header.addWidget(self.lbl_status)
         prog_header.addStretch()
         prog_header.addWidget(self.lbl_metrics)
-        prog_layout.addLayout(prog_header)
+        layout.addLayout(prog_header)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFixedHeight(16)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #ced4da;
-                border-radius: 4px;
+                border-radius: 3px;
                 text-align: center;
                 background-color: #f8f9fa;
-                height: 18px;
+                font-size: 10px;
             }
             QProgressBar::chunk {
                 background-color: #27ae60;
-                border-radius: 3px;
+                border-radius: 2px;
             }
         """)
-        prog_layout.addWidget(self.progress_bar)
-        layout.addLayout(prog_layout)
+        layout.addWidget(self.progress_bar)
 
         # Text stream display
         self.txt_display = QTextEdit()
         self.txt_display.setReadOnly(True)
         self.txt_display.setPlaceholderText("Transcribed text and segments will stream here in real time...")
+        self.txt_display.setMinimumHeight(120)
         self.txt_display.setStyleSheet("""
             QTextEdit {
                 background-color: #ffffff;
@@ -87,14 +87,16 @@ class TranscriptView(QGroupBox):
 
         # Bottom action buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
 
-        self.btn_open_docx = QPushButton("📄 Open Word Document (.docx)")
+        self.btn_open_docx = QPushButton("📄 Open .docx")
+        self.btn_open_docx.setToolTip("Open generated Word document in default office application")
         self.btn_open_docx.setStyleSheet("""
             QPushButton {
                 background-color: #1a5276;
                 color: white;
                 font-weight: bold;
-                padding: 6px 14px;
+                padding: 5px 12px;
                 border-radius: 4px;
             }
             QPushButton:hover {
@@ -109,15 +111,18 @@ class TranscriptView(QGroupBox):
         btn_layout.addWidget(self.btn_open_docx)
 
         self.btn_open_folder = QPushButton("📁 Open Folder")
+        self.btn_open_folder.setToolTip("Open folder containing the Word document")
         self.btn_open_folder.setEnabled(False)
         btn_layout.addWidget(self.btn_open_folder)
 
         self.btn_copy = QPushButton("📋 Copy Text")
+        self.btn_copy.setToolTip("Copy entire transcript to clipboard")
         btn_layout.addWidget(self.btn_copy)
 
         self.btn_clear = QPushButton("Clear")
         btn_layout.addWidget(self.btn_clear)
 
+        btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
         # Connect signals
@@ -166,17 +171,15 @@ class TranscriptView(QGroupBox):
 
     def _open_docx_file(self) -> None:
         if self._current_docx_path and self._current_docx_path.exists():
-            try:
-                subprocess.Popen(["xdg-open", str(self._current_docx_path)])
-            except Exception as exc:
-                self.lbl_status.setText(f"Could not open file: {exc}")
+            success = open_path_in_os(self._current_docx_path)
+            if not success:
+                self.lbl_status.setText(f"Could not open file: {self._current_docx_path.name}")
 
     def _open_containing_folder(self) -> None:
         if self._current_docx_path and self._current_docx_path.parent.exists():
-            try:
-                subprocess.Popen(["xdg-open", str(self._current_docx_path.parent)])
-            except Exception as exc:
-                self.lbl_status.setText(f"Could not open folder: {exc}")
+            success = open_path_in_os(self._current_docx_path.parent)
+            if not success:
+                self.lbl_status.setText(f"Could not open directory: {self._current_docx_path.parent}")
 
     def _copy_text(self) -> None:
         clipboard = QGuiApplication.clipboard()

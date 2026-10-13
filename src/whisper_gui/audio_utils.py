@@ -1,20 +1,21 @@
-"""Audio probing and ffmpeg trimming utilities."""
+"""Audio probing and ffmpeg trimming utilities with cross-platform binary resolution and process management."""
 
 from __future__ import annotations
 
 import json
 import os
-import re
-import signal
 import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 from whisper_gui.models import AudioInfo
+from whisper_gui.platform_utils import (
+    find_binary,
+    get_subprocess_creation_flags,
+    terminate_process_cross_platform,
+)
 
-FFMPEG_CMD = "ffmpeg"
-FFPROBE_CMD = "ffprobe"
 STOP_CHECK_INTERVAL = 0.15
 TERMINATE_GRACE_PERIOD = 2.0
 
@@ -35,33 +36,51 @@ class CancelledError(AudioError):
     """Operation was cancelled by user."""
 
 
+def get_ffmpeg_cmd() -> str:
+    """Return resolved path to ffmpeg binary across bundled, app-local, or system PATH."""
+    found = find_binary("ffmpeg")
+    return found if found else "ffmpeg"
+
+
+def get_ffprobe_cmd() -> str:
+    """Return resolved path to ffprobe binary across bundled, app-local, or system PATH."""
+    found = find_binary("ffprobe")
+    return found if found else "ffprobe"
+
+
 def check_ffmpeg_installed() -> tuple[bool, str]:
-    """Check if both ffmpeg and ffprobe are available and executable."""
+    """Check if both ffmpeg and ffprobe are available and executable on this operating system."""
+    ffmpeg_bin = get_ffmpeg_cmd()
+    ffprobe_bin = get_ffprobe_cmd()
+    flags = get_subprocess_creation_flags()
+
     try:
         ffmpeg_res = subprocess.run(
-            [FFMPEG_CMD, "-version"],
+            [ffmpeg_bin, "-version"],
             capture_output=True,
             text=True,
             errors="replace",
+            **flags,
         )
         if ffmpeg_res.returncode != 0:
-            return False, f"ffmpeg returned error code {ffmpeg_res.returncode}"
+            return False, f"ffmpeg ({ffmpeg_bin}) returned error code {ffmpeg_res.returncode}"
 
         ffprobe_res = subprocess.run(
-            [FFPROBE_CMD, "-version"],
+            [ffprobe_bin, "-version"],
             capture_output=True,
             text=True,
             errors="replace",
+            **flags,
         )
         if ffprobe_res.returncode != 0:
-            return False, f"ffprobe returned error code {ffprobe_res.returncode}"
+            return False, f"ffprobe ({ffprobe_bin}) returned error code {ffprobe_res.returncode}"
 
         first_line = ffmpeg_res.stdout.splitlines()[0] if ffmpeg_res.stdout else "ffmpeg available"
-        return True, first_line
+        return True, f"{first_line} [{ffmpeg_bin}]"
     except FileNotFoundError as exc:
-        return False, f"ffmpeg / ffprobe not found on PATH: {exc}"
+        return False, f"ffmpeg / ffprobe not found: {exc}"
     except Exception as exc:
-        return False, f"Error checking ffmpeg: {exc}"
+        return False, f"Error verifying ffmpeg binaries: {exc}"
 
 
 def format_seconds(seconds: float) -> str:
@@ -107,8 +126,11 @@ def get_audio_info(file_path: str | Path) -> AudioInfo:
     if not path.is_file():
         raise AudioProbeError(f"File not found: {path}")
 
+    ffprobe_bin = get_ffprobe_cmd()
+    flags = get_subprocess_creation_flags()
+
     cmd = [
-        FFPROBE_CMD,
+        ffprobe_bin,
         "-v", "error",
         "-show_entries", "format=duration,format_name,size,bit_rate",
         "-show_streams",
@@ -118,7 +140,7 @@ def get_audio_info(file_path: str | Path) -> AudioInfo:
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True, **flags)
         data = json.loads(res.stdout)
     except subprocess.CalledProcessError as exc:
         raise AudioProbeError(f"ffprobe failed for '{path.name}': {exc.stderr.strip()}") from exc
@@ -189,10 +211,10 @@ def slice_audio(
     if should_stop is not None and should_stop():
         raise CancelledError("Audio slicing cancelled before start")
 
-    cmd: list[str] = [FFMPEG_CMD, "-y"]
+    ffmpeg_bin = get_ffmpeg_cmd()
+    cmd: list[str] = [ffmpeg_bin, "-y"]
 
-    # Accurate seeking: put -ss before -i for fast seek, but when precision is desired,
-    # -ss before -i with ffmpeg 5+ is both frame-accurate and fast.
+    # Accurate seeking: -ss before -i is fast and accurate in ffmpeg 5+
     cmd.extend(["-ss", f"{start_sec:.3f}"])
 
     if end_sec is not None and end_sec > start_sec:
@@ -208,13 +230,14 @@ def slice_audio(
         str(out_p),
     ])
 
+    flags = get_subprocess_creation_flags()
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         errors="replace",
-        start_new_session=True,
+        **flags,
     )
 
     try:
@@ -224,7 +247,7 @@ def slice_audio(
                 break
             except subprocess.TimeoutExpired:
                 if should_stop is not None and should_stop():
-                    _kill_process_group(process)
+                    terminate_process_cross_platform(process)
                     process.communicate()
                     # Clean up partial output
                     if out_p.exists():
@@ -252,29 +275,4 @@ def slice_audio(
         return out_p
     finally:
         if process.poll() is None:
-            _kill_process_group(process)
-
-
-def _kill_process_group(process: subprocess.Popen, grace: float = TERMINATE_GRACE_PERIOD) -> None:
-    """Terminate the process group cleanly."""
-    if process.poll() is not None:
-        return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-
-    deadline = time.time() + grace
-    while time.time() < deadline:
-        if process.poll() is not None:
-            return
-        time.sleep(0.05)
-
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    try:
-        process.wait(timeout=1.0)
-    except Exception:
-        pass
+            terminate_process_cross_platform(process)

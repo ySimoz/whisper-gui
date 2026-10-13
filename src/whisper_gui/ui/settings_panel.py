@@ -10,8 +10,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QFormLayout,
-    QGroupBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,88 +48,99 @@ SUPPORTED_MODELS = [
 ]
 
 
-class SettingsPanel(QGroupBox):
+class SettingsPanel(QWidget):
     """Panel configuring model parameters and document export."""
 
     settings_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Model & Export Settings", parent)
+        super().__init__(parent)
         self._custom_output_dir: Path | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
 
-        form = QFormLayout()
-        form.setSpacing(8)
+        # 2-column compact grid for parameters
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(6)
 
-        # Model Selector
+        # Column 0: Model
+        grid.addWidget(QLabel("Whisper Model:"), 0, 0)
         self.combo_model = QComboBox()
         for label, model_id in SUPPORTED_MODELS:
             self.combo_model.addItem(label, model_id)
         self.combo_model.setCurrentIndex(0)  # Default large-v3-turbo
-        form.addRow("Whisper Model:", self.combo_model)
+        grid.addWidget(self.combo_model, 0, 1)
 
-        # Language Selector
+        # Column 1: Language
+        grid.addWidget(QLabel("Language:"), 0, 2)
         self.combo_lang = QComboBox()
         for label, code in SUPPORTED_LANGUAGES:
             self.combo_lang.addItem(label, code)
         self.combo_lang.setCurrentIndex(0)  # Default Auto-detect
-        form.addRow("Language:", self.combo_lang)
+        grid.addWidget(self.combo_lang, 0, 3)
 
-        # Device & Compute Type
-        device_row = QHBoxLayout()
+        # Column 0: Device & Compute Type
+        grid.addWidget(QLabel("Device & Type:"), 1, 0)
+        dev_layout = QHBoxLayout()
+        dev_layout.setSpacing(4)
         self.combo_device = QComboBox()
         self.combo_device.addItem("CPU", "cpu")
         self.combo_device.addItem("CUDA (GPU)", "cuda")
         self.combo_device.setCurrentIndex(0)
-        device_row.addWidget(self.combo_device)
+        dev_layout.addWidget(self.combo_device)
 
         self.combo_compute = QComboBox()
         self.combo_compute.addItem("int8 (Fastest on CPU)", "int8")
         self.combo_compute.addItem("float16 (GPU)", "float16")
         self.combo_compute.addItem("float32", "float32")
         self.combo_compute.setCurrentIndex(0)
-        device_row.addWidget(self.combo_compute)
+        dev_layout.addWidget(self.combo_compute)
+        grid.addLayout(dev_layout, 1, 1)
 
-        form.addRow("Device & Type:", device_row)
-
-        # CPU Threads
+        # Column 1: CPU Threads
+        grid.addWidget(QLabel("CPU Threads:"), 1, 2)
         max_cpu = os.cpu_count() or 6
         default_threads = min(6, max_cpu)
         self.spin_threads = QSpinBox()
         self.spin_threads.setRange(1, max_cpu)
         self.spin_threads.setValue(default_threads)
-        self.spin_threads.setToolTip("Number of CPU threads for inference (recommended 6 for i7 physical cores)")
-        form.addRow("CPU Threads:", self.spin_threads)
+        self.spin_threads.setToolTip("Number of CPU threads for inference (recommended 6 for physical cores)")
+        grid.addWidget(self.spin_threads, 1, 3)
 
-        layout.addLayout(form)
-
-        # Checkboxes
-        self.chk_vad = QCheckBox("Enable VAD filter (skips silent audio segments)")
+        # Row 2: Checkboxes
+        self.chk_vad = QCheckBox("Voice Activity Detection (VAD - skip silence)")
         self.chk_vad.setChecked(True)
-        layout.addWidget(self.chk_vad)
+        grid.addWidget(self.chk_vad, 2, 0, 1, 2)
 
-        self.chk_timestamps = QCheckBox("Include timestamps in .docx document")
+        self.chk_timestamps = QCheckBox("Include timestamps in Word document")
         self.chk_timestamps.setChecked(True)
-        layout.addWidget(self.chk_timestamps)
+        grid.addWidget(self.chk_timestamps, 2, 2, 1, 2)
+
+        layout.addLayout(grid)
 
         # Custom Output Directory
         out_layout = QHBoxLayout()
+        out_layout.setSpacing(6)
+        out_lbl = QLabel("Output Folder:")
+        out_lbl.setStyleSheet("font-size: 11px;")
+        out_layout.addWidget(out_lbl)
+
         self.txt_output_dir = QLineEdit()
         self.txt_output_dir.setPlaceholderText("Default: Same directory as audio file")
         self.txt_output_dir.setReadOnly(True)
-        out_layout.addWidget(self.txt_output_dir)
+        out_layout.addWidget(self.txt_output_dir, stretch=1)
 
         self.btn_browse_dir = QPushButton("Browse...")
-        self.btn_browse_dir.setMaximumHeight(26)
+        self.btn_browse_dir.setMaximumHeight(24)
         out_layout.addWidget(self.btn_browse_dir)
 
         self.btn_clear_dir = QPushButton("Reset")
-        self.btn_clear_dir.setMaximumHeight(26)
+        self.btn_clear_dir.setMaximumHeight(24)
         out_layout.addWidget(self.btn_clear_dir)
 
         layout.addLayout(out_layout)
