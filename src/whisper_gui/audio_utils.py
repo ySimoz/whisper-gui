@@ -186,6 +186,9 @@ def slice_audio(
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
     start_sec = max(0.0, start_sec)
+    if should_stop is not None and should_stop():
+        raise CancelledError("Audio slicing cancelled before start")
+
     cmd: list[str] = [FFMPEG_CMD, "-y"]
 
     # Accurate seeking: put -ss before -i for fast seek, but when precision is desired,
@@ -230,6 +233,14 @@ def slice_audio(
                         except OSError:
                             pass
                     raise CancelledError("Audio slicing cancelled by user")
+
+        if should_stop is not None and should_stop():
+            if out_p.exists():
+                try:
+                    out_p.unlink()
+                except OSError:
+                    pass
+            raise CancelledError("Audio slicing cancelled by user")
 
         if process.returncode != 0:
             err = stderr.strip() if stderr else f"Exit code {process.returncode}"
