@@ -51,14 +51,18 @@ def main() -> int:
         print(f"Build failed with exit code {result.returncode}")
         return result.returncode
 
-    output_app = dist_dir / "WhisperGUI"
     print("\n" + "=" * 60)
-    print("SUCCESS: Standalone app bundle created successfully!")
-    print(f"Location: {output_app}")
-    if sys.platform.startswith("win"):
-        print(f"Executable: {output_app / 'WhisperGUI.exe'}")
+    print("SUCCESS: Standalone application created successfully!")
+    if sys.platform == "darwin":
+        mac_app = dist_dir / "WhisperGUI.app"
+        print(f"macOS Application: {mac_app}")
+        print("You can double-click it or drag it to /Applications!")
+    elif sys.platform.startswith("win"):
+        output_app = dist_dir / "WhisperGUI"
+        print(f"Windows Executable: {output_app / 'WhisperGUI.exe'}")
     else:
-        print(f"Executable: {output_app / 'WhisperGUI'}")
+        output_app = dist_dir / "WhisperGUI"
+        print(f"Linux Executable: {output_app / 'WhisperGUI'}")
     print("=" * 60)
 
     return 0

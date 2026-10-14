@@ -119,3 +119,58 @@ def test_export_transcript_to_docx_without_timestamps(tmp_path: Path):
     assert "First sentence." in doc_text
     assert "Second sentence." in doc_text
     assert "[" not in doc_text  # No timestamp brackets in body paragraphs
+
+
+def test_export_transcript_to_docx_polished(tmp_path: Path):
+    docx_file = tmp_path / "transcript_polished.docx"
+
+    track_info = AudioInfo(
+        path=Path("/recordings/meeting.m4a"),
+        filename="meeting.m4a",
+        duration=120.0,
+    )
+    slice_cfg = SliceConfig(mode=SliceMode.FULL, start_sec=0.0, end_sec=120.0)
+    tx_cfg = TranscriptionConfig(
+        model_name="large-v3-turbo",
+        include_timestamps_in_docx=True,
+    )
+
+    segments = [
+        TranscriptSegment(start=0.0, end=4.0, text="Ehm, so today we talk about the architecture."),
+        TranscriptSegment(start=4.5, end=8.0, text="And, you know, we decided to use fast components."),
+    ]
+    result = TranscriptionResult(
+        segments=segments,
+        full_text="Ehm, so today we talk about the architecture. And, you know, we decided to use fast components.",
+        detected_language="en",
+        language_probability=0.98,
+        audio_duration=120.0,
+        elapsed_time=8.0,
+        polished_text="Today we discussed the system architecture. We selected high-performance components.",
+        llm_model_used="deepseek-v4.1-flash",
+        llm_instructions_name="Default Instructions",
+    )
+
+    export_transcript_to_docx(
+        output_path=docx_file,
+        track_info=track_info,
+        slice_config=slice_cfg,
+        transcription_config=tx_cfg,
+        result=result,
+    )
+
+    assert docx_file.exists()
+    doc = Document(str(docx_file))
+
+    # Check metadata table contains LLM details
+    meta_table = doc.tables[0]
+    meta_text = " | ".join(f"{r.cells[0].text}: {r.cells[1].text}" for r in meta_table.rows)
+    assert "deepseek-v4.1-flash" in meta_text
+    assert "Default Instructions" in meta_text
+
+    # Check document paragraphs contain polished text and appendix
+    doc_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Polished & Refined Document" in doc_text
+    assert "Today we discussed the system architecture." in doc_text
+    assert "Appendix: Original Raw Transcript (with Timestamps)" in doc_text
+    assert "[00:00 → 00:04]" in doc_text

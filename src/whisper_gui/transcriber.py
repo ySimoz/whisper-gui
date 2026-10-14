@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import os
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -75,6 +76,14 @@ class Transcriber:
         on_status: Callable[[str], None] | None = None,
     ) -> WhisperModel:
         """Returns cached in-RAM model if configuration matches, or loads it from local disk."""
+        # macOS compatibility: CTranslate2 on macOS uses CPU with Accelerate/NEON vectorization
+        if sys.platform == "darwin" and device.lower() == "cuda":
+            if on_status is not None:
+                on_status("CUDA is not supported on macOS. Switching automatically to CPU...")
+            device = "cpu"
+            if compute_type in ("float16", "int8_float16"):
+                compute_type = "int8"
+
         key = (model_name, device, compute_type, cpu_threads)
         if self._current_model is not None and self._cached_config_key == key:
             return self._current_model

@@ -123,6 +123,15 @@ def export_transcript_to_docx(
         ("Processing Time", speed_text),
     ]
 
+    if result.polished_text:
+        metadata_rows.append(
+            ("Text Polishing", f"Polished with {result.llm_model_used or 'LLM'}")
+        )
+        if result.llm_instructions_name:
+            metadata_rows.append(("Polishing Rules", result.llm_instructions_name))
+    elif result.llm_error:
+        metadata_rows.append(("Polishing Status", f"Fallback to raw ({result.llm_error})"))
+
     table = doc.add_table(rows=len(metadata_rows), cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
@@ -162,66 +171,113 @@ def export_transcript_to_docx(
     post_table_p.paragraph_format.space_before = Pt(12)
     post_table_p.paragraph_format.space_after = Pt(8)
 
-    # Section Heading: Transcript
-    heading = doc.add_heading(level=1)
-    heading.paragraph_format.space_before = Pt(12)
-    heading.paragraph_format.space_after = Pt(10)
-    h_run = heading.add_run("Transcript")
-    h_run.font.size = Pt(16)
-    h_run.font.color.rgb = RGBColor(26, 82, 118)
+    # If polished text is present, render it as primary content
+    if result.polished_text and result.polished_text.strip():
+        heading = doc.add_heading(level=1)
+        heading.paragraph_format.space_before = Pt(12)
+        heading.paragraph_format.space_after = Pt(10)
+        h_run = heading.add_run("Polished & Refined Document")
+        h_run.font.size = Pt(16)
+        h_run.font.color.rgb = RGBColor(26, 82, 118)
 
-    # Transcription Body
-    if not result.segments:
-        # Fallback to full_text if no segments
-        if result.full_text.strip():
-            p = doc.add_paragraph(result.full_text.strip())
+        # Break text by paragraphs
+        paragraphs = result.polished_text.strip().split("\n\n")
+        for para_text in paragraphs:
+            clean_para = para_text.strip()
+            if not clean_para:
+                continue
+            p = doc.add_paragraph(clean_para)
             p.paragraph_format.line_spacing = 1.15
             p.paragraph_format.space_after = Pt(8)
-        else:
-            p = doc.add_paragraph("No speech detected in audio file.")
-            p.italic = True
-    else:
-        if transcription_config.include_timestamps_in_docx:
-            # Output segments with timestamps
+
+        # Optional Raw Appendix
+        llm_cfg = getattr(transcription_config, "llm_config", None)
+        include_raw = llm_cfg.include_raw_in_docx if llm_cfg else True
+        if include_raw and result.segments:
+            appendix_heading = doc.add_heading(level=2)
+            appendix_heading.paragraph_format.space_before = Pt(24)
+            appendix_heading.paragraph_format.space_after = Pt(10)
+            app_run = appendix_heading.add_run("Appendix: Original Raw Transcript (with Timestamps)")
+            app_run.font.size = Pt(13)
+            app_run.font.color.rgb = RGBColor(108, 117, 125)
+
             for seg in result.segments:
                 seg_text = seg.text.strip()
                 if not seg_text:
                     continue
                 p = doc.add_paragraph()
                 p.paragraph_format.line_spacing = 1.15
-                p.paragraph_format.space_after = Pt(5)
+                p.paragraph_format.space_after = Pt(4)
 
-                # Format timestamp offset relative to original track
                 actual_start = start_sec + seg.start
                 actual_end = start_sec + seg.end
                 ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
 
                 ts_run = p.add_run(ts_str)
                 ts_run.font.bold = True
-                ts_run.font.size = Pt(9.5)
-                ts_run.font.color.rgb = RGBColor(41, 128, 185)  # Soft blue
+                ts_run.font.size = Pt(9.0)
+                ts_run.font.color.rgb = RGBColor(140, 150, 160)
 
                 text_run = p.add_run(seg_text)
-                text_run.font.size = Pt(11)
+                text_run.font.size = Pt(10)
+                text_run.font.color.rgb = RGBColor(60, 65, 70)
+
+    else:
+        # Standard Raw Transcript
+        heading = doc.add_heading(level=1)
+        heading.paragraph_format.space_before = Pt(12)
+        heading.paragraph_format.space_after = Pt(10)
+        h_run = heading.add_run("Transcript")
+        h_run.font.size = Pt(16)
+        h_run.font.color.rgb = RGBColor(26, 82, 118)
+
+        # Transcription Body
+        if not result.segments:
+            if result.full_text.strip():
+                p = doc.add_paragraph(result.full_text.strip())
+                p.paragraph_format.line_spacing = 1.15
+                p.paragraph_format.space_after = Pt(8)
+            else:
+                p = doc.add_paragraph("No speech detected in audio file.")
+                p.italic = True
         else:
-            # Flowing paragraphs grouped logically
-            # Group every 3-5 segments or on punctuation
-            current_paragraph_texts: list[str] = []
-            for seg in result.segments:
-                seg_text = seg.text.strip()
-                if not seg_text:
-                    continue
-                current_paragraph_texts.append(seg_text)
-                if len(current_paragraph_texts) >= 4 or seg_text.endswith((".", "!", "?")):
+            if transcription_config.include_timestamps_in_docx:
+                for seg in result.segments:
+                    seg_text = seg.text.strip()
+                    if not seg_text:
+                        continue
+                    p = doc.add_paragraph()
+                    p.paragraph_format.line_spacing = 1.15
+                    p.paragraph_format.space_after = Pt(5)
+
+                    actual_start = start_sec + seg.start
+                    actual_end = start_sec + seg.end
+                    ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
+
+                    ts_run = p.add_run(ts_str)
+                    ts_run.font.bold = True
+                    ts_run.font.size = Pt(9.5)
+                    ts_run.font.color.rgb = RGBColor(41, 128, 185)
+
+                    text_run = p.add_run(seg_text)
+                    text_run.font.size = Pt(11)
+            else:
+                current_paragraph_texts: list[str] = []
+                for seg in result.segments:
+                    seg_text = seg.text.strip()
+                    if not seg_text:
+                        continue
+                    current_paragraph_texts.append(seg_text)
+                    if len(current_paragraph_texts) >= 4 or seg_text.endswith((".", "!", "?")):
+                        p = doc.add_paragraph(" ".join(current_paragraph_texts))
+                        p.paragraph_format.line_spacing = 1.15
+                        p.paragraph_format.space_after = Pt(8)
+                        current_paragraph_texts = []
+
+                if current_paragraph_texts:
                     p = doc.add_paragraph(" ".join(current_paragraph_texts))
                     p.paragraph_format.line_spacing = 1.15
                     p.paragraph_format.space_after = Pt(8)
-                    current_paragraph_texts = []
-
-            if current_paragraph_texts:
-                p = doc.add_paragraph(" ".join(current_paragraph_texts))
-                p.paragraph_format.line_spacing = 1.15
-                p.paragraph_format.space_after = Pt(8)
 
     try:
         doc.save(str(out_file))

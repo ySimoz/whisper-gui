@@ -43,11 +43,14 @@ hiddenimports = [
     'whisper_gui.docx_exporter',
     'whisper_gui.models',
     'whisper_gui.transcriber',
+    'whisper_gui.llm_cleaner',
     'whisper_gui.worker',
     'whisper_gui.ui',
+    'whisper_gui.ui.theme',
     'whisper_gui.ui.main_window',
     'whisper_gui.ui.range_selector',
     'whisper_gui.ui.settings_panel',
+    'whisper_gui.ui.llm_panel',
     'whisper_gui.ui.track_list_widget',
     'whisper_gui.ui.transcript_view',
     'faster_whisper',
@@ -109,3 +112,20 @@ coll = COLLECT(
     upx_exclude=[],
     name='WhisperGUI',
 )
+
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='WhisperGUI.app',
+        icon=None,
+        bundle_identifier='com.whispergui.app',
+        info_plist={
+            'CFBundleName': 'Whisper Transcriber',
+            'CFBundleDisplayName': 'Whisper Transcriber',
+            'CFBundleIdentifier': 'com.whispergui.app',
+            'CFBundleVersion': '1.0.0',
+            'CFBundleShortVersionString': '1.0.0',
+            'NSHighResolutionCapable': 'True',
+            'NSRequiresAquaSystemAppearance': 'False',
+        },
+    )

@@ -42,3 +42,17 @@ def test_get_subprocess_creation_flags():
 
 def test_open_path_nonexistent():
     assert open_path_in_os(Path("/path/that/does/not/exist/999")) is False
+
+
+def test_reveal_file_in_os_nonexistent():
+    from whisper_gui.platform_utils import reveal_file_in_os
+    assert reveal_file_in_os(Path("/path/that/does/not/exist/999")) is False
+
+
+def test_ensure_macos_environment(monkeypatch):
+    import os
+    from whisper_gui.platform_utils import ensure_macos_environment
+    monkeypatch.setattr(sys, "platform", "darwin")
+    ensure_macos_environment()
+    # Should not raise exception
+    assert isinstance(os.environ.get("PATH", ""), str)

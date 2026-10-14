@@ -108,6 +108,20 @@ class TranscriptSegment:
 
 
 @dataclass
+class LLMConfig:
+    """Configuration for LLM transcript reformatting and polishing."""
+
+    enabled: bool = False
+    provider: str = "DeepSeek"  # DeepSeek, OpenAI, Groq, Custom
+    model_name: str = "deepseek-flash"
+    api_key: str = ""
+    base_url: str = "https://api.deepseek.com/v1"
+    instruction_file: Path | None = None
+    custom_instructions_text: str | None = None
+    include_raw_in_docx: bool = True
+
+
+@dataclass
 class TranscriptionConfig:
     """Options for the faster-whisper model and export."""
 
@@ -121,6 +135,7 @@ class TranscriptionConfig:
     include_timestamps_in_docx: bool = True
     output_dir: Path | None = None
     auto_unload_model: bool = False
+    llm_config: LLMConfig = field(default_factory=LLMConfig)
 
 
 @dataclass
@@ -134,6 +149,10 @@ class TranscriptionResult:
     audio_duration: float = 0.0  # Duration of the transcribed slice
     elapsed_time: float = 0.0     # Time taken to transcribe
     docx_path: Path | None = None
+    polished_text: str | None = None
+    llm_model_used: str | None = None
+    llm_instructions_name: str | None = None
+    llm_error: str | None = None
 
     @property
     def speed_factor(self) -> float:

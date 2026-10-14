@@ -40,13 +40,14 @@ def test_range_selector_widget(qtbot, dummy_track):
     assert widget.radio_full.isChecked()
     assert "Full Audio" in widget.lbl_selected_length.text()
 
-    # Switch to custom range
+    # Switch to custom range and adjust end time
     widget.radio_custom.setChecked(True)
     assert widget.radio_custom.isChecked()
-
-    # Apply 5m preset (300 seconds)
-    widget.btn_preset_5m.click()
     assert dummy_track.slice_config.mode == SliceMode.RANGE
+
+    from PySide6.QtCore import QTime
+    widget.time_end.setTime(QTime(0, 5, 0))
+    widget._on_time_changed()
     assert dummy_track.slice_config.start_sec == 0.0
     assert dummy_track.slice_config.effective_end(1200.0) == 300.0
     assert "05:00" in widget.lbl_selected_length.text()
@@ -82,10 +83,21 @@ def test_transcript_view(qtbot, tmp_path):
     # Initially empty and buttons disabled
     assert view.txt_display.toPlainText() == ""
     assert not view.btn_open_docx.isEnabled()
+    assert not view.btn_view_polished.isEnabled()
 
     # Append segment
     seg = TranscriptSegment(start=2.0, end=5.5, text="Hello Whisper")
     view.append_segment(seg)
+    assert "Hello Whisper" in view.txt_display.toPlainText()
+
+    # Set polished text
+    view.set_polished_text("Hello Whisper, polished and refined.", "deepseek-v4.1-flash")
+    assert view.btn_view_polished.isEnabled()
+    assert view.btn_view_polished.isChecked()
+    assert view.txt_display.toPlainText() == "Hello Whisper, polished and refined."
+
+    # Switch back to raw
+    view.btn_view_raw.click()
     assert "Hello Whisper" in view.txt_display.toPlainText()
 
     # Update progress
@@ -103,6 +115,7 @@ def test_transcript_view(qtbot, tmp_path):
     view.clear_view()
     assert view.txt_display.toPlainText() == ""
     assert not view.btn_open_docx.isEnabled()
+    assert not view.btn_view_polished.isEnabled()
 
 
 def test_track_list_widget(qtbot, tmp_path):
@@ -129,6 +142,58 @@ def test_track_list_widget(qtbot, tmp_path):
     assert widget.table.rowCount() == 0
 
 
+def test_llm_panel(qtbot, tmp_path):
+    from whisper_gui.ui.llm_panel import LLMPanel
+    from whisper_gui.models import LLMConfig
+    from PySide6.QtCore import QSettings
+
+    panel = LLMPanel()
+    qtbot.addWidget(panel)
+
+    # Initial state
+    assert not panel.chk_enable.isChecked()
+    assert not panel.controls_container.isEnabled()
+    cfg = panel.get_config()
+    assert cfg.enabled is False
+    assert cfg.model_name == "deepseek-flash"
+    assert cfg.provider == "DeepSeek"
+
+    # Toggle enable
+    panel.chk_enable.setChecked(True)
+    assert panel.controls_container.isEnabled()
+    assert panel.get_config().enabled is True
+
+    # Switch provider to OpenAI
+    panel.combo_provider.setCurrentText("OpenAI")
+    cfg_openai = panel.get_config()
+    assert cfg_openai.provider == "OpenAI"
+    assert cfg_openai.model_name == "gpt-4o-mini"
+    assert "api.openai.com" in cfg_openai.base_url
+
+    # Switch back to DeepSeek
+    panel.combo_provider.setCurrentText("DeepSeek")
+    cfg_ds = panel.get_config()
+    assert cfg_ds.provider == "DeepSeek"
+    assert cfg_ds.model_name == "deepseek-flash"
+
+    # Set API key
+    panel.txt_api_key.setText("sk-mysecretkey")
+    assert panel.get_config().api_key == "sk-mysecretkey"
+
+    # Test settings persistence
+    settings = QSettings(str(tmp_path / "test_settings.ini"), QSettings.IniFormat)
+    panel.save_settings(settings)
+
+    panel2 = LLMPanel()
+    qtbot.addWidget(panel2)
+    panel2.load_settings(settings)
+    cfg_loaded = panel2.get_config()
+    assert cfg_loaded.enabled is True
+    assert cfg_loaded.provider == "DeepSeek"
+    assert cfg_loaded.model_name == "deepseek-flash"
+    assert cfg_loaded.api_key == "sk-mysecretkey"
+
+
 def test_main_window_init(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -139,4 +204,6 @@ def test_main_window_init(qtbot):
     assert window.track_list is not None
     assert window.range_selector is not None
     assert window.settings_panel is not None
+    assert window.llm_panel is not None
     assert window.transcript_view is not None
+    assert window.config_tabs.count() == 3

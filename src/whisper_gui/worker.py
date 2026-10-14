@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import traceback
@@ -11,8 +12,11 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from whisper_gui.audio_utils import CancelledError, slice_audio
 from whisper_gui.docx_exporter import export_transcript_to_docx
+from whisper_gui.llm_cleaner import load_instructions, polish_transcript
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionConfig, TranscriptionResult
 from whisper_gui.transcriber import Transcriber
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionWorker(QThread):
@@ -125,6 +129,41 @@ class TranscriptionWorker(QThread):
                 on_status=handle_status,
                 should_stop=self.should_stop,
             )
+
+            if self.should_stop():
+                track.status = TrackStatus.CANCELLED
+                self.cancelled.emit()
+                return
+
+            # 3.5 Optional LLM Polishing
+            llm_cfg = self.config.llm_config
+            if llm_cfg.enabled and llm_cfg.api_key.strip():
+                try:
+                    self.status_updated.emit(
+                        track.id, f"Polishing transcript with {llm_cfg.model_name}..."
+                    )
+                    instructions_text, source_name = load_instructions(llm_cfg)
+                    result.llm_model_used = llm_cfg.model_name
+                    result.llm_instructions_name = source_name
+
+                    polished = polish_transcript(
+                        raw_text=result.full_text,
+                        config=llm_cfg,
+                        instructions=instructions_text,
+                        cancel_check=self.should_stop,
+                    )
+                    result.polished_text = polished
+                    self.status_updated.emit(track.id, "Transcript polished successfully.")
+                except InterruptedError:
+                    track.status = TrackStatus.CANCELLED
+                    self.cancelled.emit()
+                    return
+                except Exception as llm_err:
+                    logger.warning("LLM polishing failed: %s", llm_err)
+                    result.llm_error = str(llm_err)
+                    self.status_updated.emit(
+                        track.id, f"LLM polish warning: {llm_err} (exporting raw transcript)"
+                    )
 
             if self.should_stop():
                 track.status = TrackStatus.CANCELLED

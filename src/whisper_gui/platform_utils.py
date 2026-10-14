@@ -35,6 +35,42 @@ def sanitize_filename(name: str, replacement: str = "_") -> str:
     return cleaned if cleaned else "transcript"
 
 
+def ensure_macos_environment() -> None:
+    """Ensure standard macOS package manager bin directories are present in os.environ['PATH'].
+
+    GUI applications launched from Finder or Spotlight on macOS do not inherit shell profiles
+    (.zshrc, .bash_profile), so Homebrew (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel)
+    and MacPorts (/opt/local/bin) are missing from PATH by default.
+    """
+    if sys.platform != "darwin":
+        return
+
+    current_path = os.environ.get("PATH", "")
+    paths = current_path.split(os.pathsep) if current_path else []
+    existing_paths = set(paths)
+
+    candidates = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+        str(Path.home() / "bin"),
+        str(Path.home() / ".local" / "bin"),
+    ]
+
+    added = []
+    for cand in candidates:
+        if cand not in existing_paths and Path(cand).is_dir():
+            added.append(cand)
+
+    if added:
+        os.environ["PATH"] = os.pathsep.join(added) + (os.pathsep + current_path if current_path else "")
+
+
+# Ensure macOS environment is initialized on module load
+ensure_macos_environment()
+
+
 def find_binary(binary_name: str) -> str | None:
     """Find a binary executable across system PATH, application directory, and bundled paths.
 
@@ -72,9 +108,14 @@ def find_binary(binary_name: str) -> str | None:
 
     # 4. Standard platform directories
     if sys.platform == "darwin":
+        user_home = Path.home()
         candidates.extend([
             Path(f"/opt/homebrew/bin/{binary_name}"),
+            Path(f"/opt/homebrew/sbin/{binary_name}"),
             Path(f"/usr/local/bin/{binary_name}"),
+            Path(f"/opt/local/bin/{binary_name}"),
+            user_home / f"bin/{binary_name}",
+            user_home / f".local/bin/{binary_name}",
             Path(f"/usr/bin/{binary_name}"),
         ])
     elif sys.platform.startswith("win"):
@@ -205,3 +246,27 @@ def open_path_in_os(path: Path | str) -> bool:
             return True
     except Exception:
         return False
+
+
+def reveal_file_in_os(path: Path | str) -> bool:
+    """Reveal and highlight a file in the system file manager.
+
+    - macOS: runs 'open -R <file>' which highlights the file directly in Finder.
+    - Windows: runs 'explorer /select,<file>' which opens Windows Explorer with file selected.
+    - Linux: opens the parent folder in default file manager.
+    """
+    p = Path(path).resolve()
+    if not p.exists():
+        return False
+
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(p)])
+            return True
+        elif sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", f"/select,{p}"])
+            return True
+        else:
+            return open_path_in_os(p.parent)
+    except Exception:
+        return open_path_in_os(p.parent)

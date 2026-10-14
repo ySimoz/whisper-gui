@@ -1,11 +1,11 @@
-"""Main window for Whisper GUI desktop application with responsive non-fullscreen layouts."""
+"""Main window for Whisper GUI desktop application with responsive layouts and vibrant dark theme."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -27,8 +27,24 @@ from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
 from whisper_gui.transcriber import Transcriber
+from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.range_selector import RangeSelectorWidget
 from whisper_gui.ui.settings_panel import SettingsPanel
+from whisper_gui.ui.theme import (
+    COLOR_BG_INPUT,
+    COLOR_BG_SURFACE,
+    COLOR_BORDER,
+    COLOR_PRIMARY,
+    COLOR_PRIMARY_HOVER,
+    COLOR_PRIMARY_TEXT,
+    COLOR_SECONDARY,
+    COLOR_SECONDARY_HOVER,
+    COLOR_SECONDARY_TEXT,
+    COLOR_TEXT_HINT,
+    COLOR_TEXT_MAIN,
+    COLOR_TEXT_MUTED,
+    GLOBAL_STYLESHEET,
+)
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
 from whisper_gui.worker import TranscriptionWorker
@@ -40,14 +56,16 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"Whisper GUI - Audio Transcription & Docx Export v{__version__}")
-        self.resize(1100, 720)
+        self.resize(1120, 740)
         self.setMinimumSize(780, 500)
+        self.setStyleSheet(GLOBAL_STYLESHEET)
 
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
         self.current_worker: TranscriptionWorker | None = None
 
         self._build_ui()
+        self._load_settings()
         self._check_dependencies()
 
     def _build_ui(self) -> None:
@@ -60,66 +78,74 @@ class MainWindow(QMainWindow):
         # Header bar
         header_frame = QFrame()
         header_frame.setFrameShape(QFrame.StyledPanel)
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 5px;
-            }
+        header_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+            }}
         """)
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(10, 6, 10, 6)
+        header_layout.setContentsMargins(12, 8, 12, 8)
         header_layout.setSpacing(10)
 
-        title_lbl = QLabel("🎙️ Whisper Audio Transcriber")
+        title_lbl = QLabel()
         title_font = QFont()
         title_font.setPointSize(13)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
-        title_lbl.setStyleSheet("color: #1a5276;")
+        title_lbl.setTextFormat(Qt.RichText)
+        title_lbl.setText(
+            f"<span style='color: {COLOR_PRIMARY}; font-weight: bold;'>Whisper</span> "
+            f"<span style='color: {COLOR_SECONDARY}; font-weight: bold;'>Transcriber</span>"
+        )
         header_layout.addWidget(title_lbl)
 
         header_layout.addStretch()
 
         # Primary Action Buttons
-        self.btn_start = QPushButton("▶ Start Transcription")
-        self.btn_start.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
+        self.btn_start = QPushButton("Start Transcription")
+        self.btn_start.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
                 font-weight: bold;
                 font-size: 12px;
-                padding: 6px 16px;
+                padding: 6px 18px;
+                border: 1px solid {COLOR_PRIMARY};
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #2ecc71;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-                color: #7f8c8d;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_PRIMARY_HOVER};
+            }}
+            QPushButton:disabled {{
+                background-color: {COLOR_BG_INPUT};
+                color: {COLOR_TEXT_HINT};
+                border: 1px solid {COLOR_BORDER};
+            }}
         """)
         header_layout.addWidget(self.btn_start)
 
-        self.btn_stop = QPushButton("⏹ Stop")
+        self.btn_stop = QPushButton("Stop")
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("""
-            QPushButton {
-                background-color: #c0392b;
-                color: white;
+        self.btn_stop.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_SECONDARY};
+                color: {COLOR_SECONDARY_TEXT};
                 font-weight: bold;
                 font-size: 12px;
-                padding: 6px 16px;
+                padding: 6px 18px;
+                border: 1px solid {COLOR_SECONDARY};
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #e74c3c;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-                color: #7f8c8d;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_SECONDARY_HOVER};
+            }}
+            QPushButton:disabled {{
+                background-color: {COLOR_BG_INPUT};
+                color: {COLOR_TEXT_HINT};
+                border: 1px solid {COLOR_BORDER};
+            }}
         """)
         header_layout.addWidget(self.btn_stop)
 
@@ -139,38 +165,14 @@ class MainWindow(QMainWindow):
 
         # Configuration Tabs
         self.config_tabs = QTabWidget()
-        self.config_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                background-color: #ffffff;
-            }
-            QTabBar::tab {
-                background: #e9ecef;
-                color: #495057;
-                padding: 5px 14px;
-                font-weight: bold;
-                font-size: 11px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: #1a5276;
-                color: #ffffff;
-            }
-            QTabBar::tab:hover:!selected {
-                background: #dee2e6;
-            }
-        """)
 
-        # Tab 1: Range Selector in scroll area (prevents clipping when window is shrunk)
+        # Tab 1: Range Selector in scroll area
         self.range_selector = RangeSelectorWidget()
         scroll_range = QScrollArea()
         scroll_range.setWidgetResizable(True)
         scroll_range.setFrameShape(QFrame.NoFrame)
         scroll_range.setWidget(self.range_selector)
-        self.config_tabs.addTab(scroll_range, "✂️ Audio Trimming (ffmpeg)")
+        self.config_tabs.addTab(scroll_range, "Audio Trimming")
 
         # Tab 2: Settings Panel in scroll area
         self.settings_panel = SettingsPanel()
@@ -178,7 +180,15 @@ class MainWindow(QMainWindow):
         scroll_settings.setWidgetResizable(True)
         scroll_settings.setFrameShape(QFrame.NoFrame)
         scroll_settings.setWidget(self.settings_panel)
-        self.config_tabs.addTab(scroll_settings, "⚙️ Model & Output Settings")
+        self.config_tabs.addTab(scroll_settings, "Whisper Settings")
+
+        # Tab 3: LLM Text Polish Panel in scroll area
+        self.llm_panel = LLMPanel()
+        scroll_llm = QScrollArea()
+        scroll_llm.setWidgetResizable(True)
+        scroll_llm.setFrameShape(QFrame.NoFrame)
+        scroll_llm.setWidget(self.llm_panel)
+        self.config_tabs.addTab(scroll_llm, "Text Polish")
 
         self.v_splitter.addWidget(self.config_tabs)
 
@@ -189,12 +199,12 @@ class MainWindow(QMainWindow):
         # Proportion settings: config tabs compact, transcript view gets majority of room
         self.v_splitter.setStretchFactor(0, 0)
         self.v_splitter.setStretchFactor(1, 1)
-        self.v_splitter.setSizes([160, 440])
+        self.v_splitter.setSizes([120, 520])
 
         self.h_splitter.addWidget(self.v_splitter)
         self.h_splitter.setStretchFactor(0, 4)
         self.h_splitter.setStretchFactor(1, 6)
-        self.h_splitter.setSizes([380, 620])
+        self.h_splitter.setSizes([380, 640])
 
         main_vbox.addWidget(self.h_splitter, stretch=1)
 
@@ -219,44 +229,54 @@ class MainWindow(QMainWindow):
         if not ok:
             QMessageBox.critical(
                 self,
-                "FFmpeg Error",
-                f"FFmpeg or FFprobe could not be found or executed:\n\n{msg}\n\nPlease install ffmpeg on your system or place the binary in the application folder.",
+                "FFmpeg Missing",
+                f"FFmpeg or FFprobe was not detected on your system PATH:\n\n{msg}\n\n"
+                f"Whisper GUI requires FFmpeg to slice and decode audio tracks. "
+                f"Please install ffmpeg (e.g. 'sudo apt install ffmpeg' on Ubuntu or 'brew install ffmpeg' on macOS).",
             )
-            self.status_bar.showMessage(f"Error: {msg}")
-        else:
-            self.status_bar.showMessage(f"Ready. {msg.split(',')[0]}")
 
     def _on_track_selected(self, track: AudioTrack | None) -> None:
+        """User clicked or navigated to a track in the list."""
         self.range_selector.set_track(track)
-        if track:
-            # Switch to trimming tab for immediate track editing
-            self.config_tabs.setCurrentIndex(0)
-            if track.result and track.result.docx_path:
-                self.transcript_view.set_completed_docx(track.result.docx_path)
-                self.transcript_view.set_status(f"Completed ({track.result.speed_factor:.1f}x speed)")
-                self.transcript_view.set_progress(100)
+        if track and track.result and track.result.docx_path:
+            self.transcript_view.set_completed_docx(track.result.docx_path)
+            if track.result.polished_text:
+                self.transcript_view.set_polished_text(
+                    track.result.polished_text, track.result.llm_model_used or ""
+                )
 
-    def _on_range_changed(self, start_sec: float, end_sec: float) -> None:
-        track = self.track_list.get_selected_track()
-        if track:
-            self.track_list.refresh_track_display(track.id)
+    def _on_range_changed(self, track_id: str) -> None:
+        """Update table display when user modifies start/end slicing."""
+        self.track_list.refresh_track_display(track_id)
 
     def _on_start_clicked(self) -> None:
         tracks = self.track_list.get_tracks()
         if not tracks:
-            QMessageBox.information(
+            QMessageBox.warning(
                 self,
-                "No Audio Files",
-                "Please add at least one audio file to transcribe.",
+                "No Audio Tracks",
+                "Please add at least one audio file before starting transcription.",
             )
             return
 
-        # Check pending tracks
-        pending_tracks = [t for t in tracks if t.status != TrackStatus.COMPLETED]
+        # Check if LLM polish is enabled but API key is missing
+        llm_cfg = self.llm_panel.get_config()
+        if llm_cfg.enabled and not llm_cfg.api_key.strip() and llm_cfg.provider != "Custom":
+            QMessageBox.warning(
+                self,
+                "API Key Required",
+                "You have enabled LLM Text Polishing, but no API Key is entered.\n\n"
+                "Please enter your API Key in the 'Text Polish' tab, or uncheck the toggle to proceed with pure Whisper transcription.",
+            )
+            # Switch to LLM tab
+            self.config_tabs.setCurrentIndex(2)
+            return
+
+        pending_tracks = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
         if not pending_tracks:
             reply = QMessageBox.question(
                 self,
-                "Re-transcribe?",
+                "Re-run Transcription?",
                 "All tracks in the queue are already completed. Do you want to transcribe them again?",
                 QMessageBox.Yes | QMessageBox.No,
             )
@@ -270,6 +290,7 @@ class MainWindow(QMainWindow):
                 return
 
         config = self.settings_panel.get_config()
+        config.llm_config = llm_cfg
         self.transcript_view.clear_view()
 
         # Update UI state
@@ -278,6 +299,7 @@ class MainWindow(QMainWindow):
         self.track_list.setEnabled(False)
         self.range_selector.setEnabled(False)
         self.settings_panel.setEnabled(False)
+        self.llm_panel.setEnabled(False)
         self.status_bar.showMessage("Transcription running in background...")
 
         # Create worker
@@ -330,6 +352,10 @@ class MainWindow(QMainWindow):
 
     def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
         self.track_list.refresh_track_display(track_id)
+        if result.polished_text:
+            self.transcript_view.set_polished_text(
+                result.polished_text, result.llm_model_used or ""
+            )
         if result.docx_path:
             self.transcript_view.set_completed_docx(result.docx_path)
             self.status_bar.showMessage(f"Completed! Document saved: {result.docx_path.name}")
@@ -368,10 +394,22 @@ class MainWindow(QMainWindow):
         self.track_list.setEnabled(True)
         self.range_selector.setEnabled(True)
         self.settings_panel.setEnabled(True)
+        self.llm_panel.setEnabled(True)
         self.current_worker = None
 
+    def _load_settings(self) -> None:
+        settings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
+        self.settings_panel.load_settings(settings)
+        self.llm_panel.load_settings(settings)
+
+    def _save_settings(self) -> None:
+        settings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
+        self.settings_panel.save_settings(settings)
+        self.llm_panel.save_settings(settings)
+
     def closeEvent(self, event) -> None:
-        """Ensure background threads are safely terminated upon exit."""
+        """Ensure background threads are safely terminated upon exit and settings saved."""
+        self._save_settings()
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.request_stop()
             self.current_worker.wait(3000)

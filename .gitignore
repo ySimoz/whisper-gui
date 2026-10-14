@@ -18,3 +18,17 @@ htmlcov/
 
 # Output docs from tests
 *.docx
+
+# macOS & OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE & editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local settings / secrets
+test_settings*.ini
+*.env
