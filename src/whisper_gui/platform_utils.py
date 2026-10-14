@@ -24,6 +24,58 @@ def get_bundle_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def get_asset_path(filename: str = "minimal_whisper.svg") -> Path | None:
+    """Find an asset file across bundled and development paths.
+
+    Args:
+        filename: Asset file name (e.g., 'minimal_whisper.svg', 'icon.png', 'icon.icns').
+
+    Returns:
+        Path to file if it exists, otherwise None.
+    """
+    candidates: list[Path] = []
+    if is_bundled():
+        base = get_bundle_dir()
+        candidates.extend([
+            base / "assets" / filename,
+            base / "src" / "assets" / filename,
+            base / filename,
+        ])
+
+    module_dir = Path(__file__).resolve().parent
+    repo_root = module_dir.parent.parent
+    candidates.extend([
+        repo_root / "assets" / filename,
+        repo_root / "src" / "assets" / filename,
+        module_dir.parent / "assets" / filename,
+    ])
+
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def get_app_icon():
+    """Load the application QIcon from SVG/PNG/ICO/ICNS assets with fallback.
+
+    Returns:
+        QIcon: Loaded QIcon or empty QIcon if no icon is found.
+    """
+    try:
+        from PySide6.QtGui import QIcon
+    except ImportError:
+        return None
+
+    for name in ["minimal_whisper.svg", "icon.png", "icon.ico", "icon.icns"]:
+        p = get_asset_path(name)
+        if p and p.is_file():
+            icon = QIcon(str(p))
+            if not icon.isNull():
+                return icon
+    return QIcon()
+
+
 def sanitize_filename(name: str, replacement: str = "_") -> str:
     """Sanitize a filename to ensure validity across Windows, macOS, and Linux.
 

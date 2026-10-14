@@ -28,13 +28,21 @@ datas += ctranslate2_datas
 datas += av_datas
 datas += certifi_datas
 
+# Include application assets (icons, svg)
+project_root = Path.cwd()
+assets_dir = project_root / 'assets'
+if assets_dir.is_dir():
+    datas.append((str(assets_dir), 'assets'))
+src_assets_dir = project_root / 'src' / 'assets'
+if src_assets_dir.is_dir():
+    datas.append((str(src_assets_dir), 'src/assets'))
+
 binaries = []
 binaries += ctranslate2_binaries
 binaries += av_binaries
 binaries += certifi_binaries
 
 # If local ffmpeg/ffprobe binaries are in ./bin, include them
-project_root = Path.cwd()
 local_bin_dir = project_root / 'bin'
 if local_bin_dir.is_dir():
     for f in local_bin_dir.iterdir():
@@ -90,6 +98,16 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+exe_icon = None
+if sys.platform.startswith('win'):
+    ico_p = project_root / 'assets' / 'icon.ico'
+    if ico_p.is_file():
+        exe_icon = str(ico_p)
+else:
+    png_p = project_root / 'assets' / 'icon.png'
+    if png_p.is_file():
+        exe_icon = str(png_p)
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -106,6 +124,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=exe_icon,
 )
 
 coll = COLLECT(
@@ -120,10 +139,12 @@ coll = COLLECT(
 )
 
 if sys.platform == 'darwin':
+    icns_p = project_root / 'assets' / 'icon.icns'
+    mac_icon = str(icns_p) if icns_p.is_file() else None
     app = BUNDLE(
         coll,
         name='WhisperGUI.app',
-        icon=None,
+        icon=mac_icon,
         bundle_identifier='com.whispergui.app',
         info_plist={
             'CFBundleName': 'Whisper Transcriber',

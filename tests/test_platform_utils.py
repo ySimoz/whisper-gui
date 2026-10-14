@@ -56,3 +56,14 @@ def test_ensure_macos_environment(monkeypatch):
     ensure_macos_environment()
     # Should not raise exception
     assert isinstance(os.environ.get("PATH", ""), str)
+
+
+def test_get_asset_path_and_icon():
+    from whisper_gui.platform_utils import get_asset_path, get_app_icon
+    svg_p = get_asset_path("minimal_whisper.svg")
+    assert svg_p is not None
+    assert svg_p.is_file()
+
+    icon = get_app_icon()
+    assert icon is not None
+    assert not icon.isNull()

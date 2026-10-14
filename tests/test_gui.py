@@ -205,6 +205,7 @@ def test_main_window_init(qtbot):
     qtbot.addWidget(window)
 
     assert "Whisper GUI" in window.windowTitle()
+    assert not window.windowIcon().isNull()
     assert window.btn_start.isEnabled()
     assert not window.btn_stop.isEnabled()
     assert window.track_list is not None

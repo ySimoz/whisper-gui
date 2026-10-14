@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from whisper_gui import __version__
+from whisper_gui.platform_utils import get_app_icon
 from whisper_gui.ui.main_window import MainWindow
 
 
@@ -29,7 +30,14 @@ def main() -> int:
     app.setOrganizationName("WhisperGUI")
     app.setDesktopFileName("whisper-gui.desktop")
 
+    # Set application icon
+    app_icon = get_app_icon()
+    if app_icon and not app_icon.isNull():
+        app.setWindowIcon(app_icon)
+
     window = MainWindow()
+    if app_icon and not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     window.show()
 
     return app.exec()

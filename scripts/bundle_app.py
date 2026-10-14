@@ -35,6 +35,15 @@ def main() -> int:
         print("Cleaning previous build directory...")
         shutil.rmtree(build_dir, ignore_errors=True)
 
+    # Ensure application icon assets (png, ico, icns) are generated from minimal_whisper.svg
+    icon_script = project_root / "scripts" / "generate_icons.py"
+    if icon_script.exists():
+        print("Ensuring application icon assets are generated...")
+        try:
+            subprocess.run([sys.executable, str(icon_script)], check=True)
+        except Exception as e:
+            print(f"Warning: Failed to generate icons: {e}")
+
     cmd = [
         sys.executable,
         "-m",

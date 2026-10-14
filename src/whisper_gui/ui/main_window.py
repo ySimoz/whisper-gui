@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
+from whisper_gui.platform_utils import get_app_icon
 from whisper_gui.transcriber import Transcriber
 from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.range_selector import RangeSelectorWidget
@@ -59,6 +60,11 @@ class MainWindow(QMainWindow):
         self.resize(1120, 740)
         self.setMinimumSize(780, 500)
         self.setStyleSheet(GLOBAL_STYLESHEET)
+
+        # Set window icon
+        app_icon = get_app_icon()
+        if app_icon and not app_icon.isNull():
+            self.setWindowIcon(app_icon)
 
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
