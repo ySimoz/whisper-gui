@@ -36,7 +36,7 @@ To run Whisper GUI on another computer with automated environment setup:
 
 ### On Linux
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
 ./run_linux.sh
 ```
@@ -44,7 +44,7 @@ cd whisper-gui
 
 ### On macOS
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
 ./run_macos.sh
 ```
@@ -58,7 +58,7 @@ If you prefer using standard Python or `uv`:
 
 ```bash
 # 1. Clone repository
-git clone <your-repo-url>
+git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
 
 # 2. Create and activate virtual environment
@@ -92,44 +92,6 @@ python scripts/bundle_app.py
 - **On Linux**: Produces a standalone distribution folder at `dist/WhisperGUI/` with executable `dist/WhisperGUI/WhisperGUI`.
 - **On macOS**: Produces a native double-clickable application bundle at `dist/WhisperGUI.app` that can be dragged into `/Applications`.
 - **On Windows**: Produces `dist/WhisperGUI/WhisperGUI.exe`.
-
----
-
-## Setting Up Your GitHub Repository
-
-To share the code or build automated releases across computers:
-
-### 1. Initialize and Commit Local Changes
-```bash
-cd whisper-gui
-
-# Verify git status
-git status
-
-# Stage all files
-git add .
-
-# Create initial release commit
-git commit -m "feat: complete whisper transcriber with llm polishing and cross-platform support"
-```
-
-### 2. Create a Remote Repository on GitHub
-1. Go to [github.com/new](https://github.com/new).
-2. Set the repository name (e.g. `whisper-gui`).
-3. Leave "Initialize with README", ".gitignore", and "license" unchecked (they already exist locally).
-4. Click **Create repository**.
-
-### 3. Push to GitHub
-```bash
-# Set your main branch
-git branch -M main
-
-# Add your remote repository (replace with your GitHub username)
-git remote add origin https://github.com/<your-username>/whisper-gui.git
-
-# Push your code
-git push -u origin main
-```
 
 ---
 
