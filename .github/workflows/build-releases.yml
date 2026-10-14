@@ -6,6 +6,10 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   test:
@@ -50,37 +54,25 @@ jobs:
         run: |
           pytest -v
 
-  build:
-    name: Build Bundle on ${{ matrix.os }}
+  build-linux:
+    name: Build Linux Binary
     needs: test
-    if: startsWith(github.ref, 'tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.11"]
-
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           cache: 'pip'
 
-      - name: Install FFmpeg & Qt Linux libraries (Ubuntu)
-        if: runner.os == 'Linux'
+      - name: Install FFmpeg & Qt Linux libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg libgl1 libegl1 libxkbcommon-x11-0
-
-      - name: Install FFmpeg (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install ffmpeg
 
       - name: Install Dependencies & PyInstaller
         run: |
@@ -92,24 +84,110 @@ jobs:
         run: |
           python scripts/bundle_app.py
 
-      - name: Archive Linux Artifact
-        if: runner.os == 'Linux'
+      - name: Archive Linux Package
         run: |
           cd dist
           tar -czf WhisperGUI-linux-x86_64.tar.gz WhisperGUI/
 
-      - name: Archive macOS Artifact
-        if: runner.os == 'macOS'
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperGUI-linux-x86_64
+          path: dist/WhisperGUI-linux-x86_64.tar.gz
+
+  build-macos:
+    name: Build macOS Application
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install FFmpeg
+        run: |
+          brew install ffmpeg
+
+      - name: Install Dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build Standalone Bundle (.app)
+        run: |
+          python scripts/bundle_app.py
+
+      - name: Archive macOS Package
         run: |
           cd dist
           zip -r WhisperGUI-macos.zip WhisperGUI.app
 
-      - name: Upload Release Binaries
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'tags/v')
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: WhisperGUI-macos
+          path: dist/WhisperGUI-macos.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: WhisperGUI-linux-x86_64
+          path: release-assets/
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: WhisperGUI-macos
+          path: release-assets/
+
+      - name: Determine Release Tag
+        id: tag_info
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest-build" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release & Upload Binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_info.outputs.tag }}
+          name: Whisper GUI ${{ steps.tag_info.outputs.tag }}
+          draft: false
+          prerelease: false
           files: |
-            dist/*.tar.gz
-            dist/*.zip
+            release-assets/WhisperGUI-linux-x86_64.tar.gz
+            release-assets/WhisperGUI-macos.zip
+          body: |
+            ## Whisper GUI Desktop Application
+
+            ### 📦 Downloads by Operating System
+
+            | Operating System | Download File | How to Run |
+            |---|---|---|
+            | 🐧 **Linux (x86_64)** | [`WhisperGUI-linux-x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-linux-x86_64.tar.gz) | Extract with `tar -xzf WhisperGUI-linux-x86_64.tar.gz` and run `./WhisperGUI/WhisperGUI` |
+            | 🍏 **macOS (Apple Silicon & Intel)** | [`WhisperGUI-macos.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-macos.zip) | Unzip to get `WhisperGUI.app`, double-click or drag into `/Applications` |
+
+            ---
+
+            ### ✨ Highlights
+            - **Audio Trimming**: Frame-accurate custom range selection with FFmpeg.
+            - **Faster-Whisper**: High-accuracy `large-v3-turbo` model with live RAM monitor and Unload button.
+            - **LLM Text Polish (Optional)**: Automatically polishes disfluencies and formatting using DeepSeek V4.1 Flash (`deepseek-flash`), OpenAI, or Groq.
+            - **Microsoft Word Export**: Generates clean `.docx` files with metadata headers.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
