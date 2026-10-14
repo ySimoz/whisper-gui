@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from docx import Document
 
-from whisper_gui.audio_utils import get_audio_info
+from whisper_gui.audio_utils import get_audio_info, get_ffmpeg_cmd
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode, TranscriptionConfig
 from whisper_gui.transcriber import Transcriber
 from whisper_gui.worker import TranscriptionWorker
@@ -17,7 +17,7 @@ def test_audio_file(tmp_path: Path) -> Path:
     """Create a 3-second test WAV file with sine wave."""
     wav_file = tmp_path / "test_audio.wav"
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_cmd(), "-y",
         "-f", "lavfi",
         "-i", "sine=frequency=440:duration=3",
         str(wav_file),

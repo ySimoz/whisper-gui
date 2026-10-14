@@ -65,16 +65,17 @@ def test_transcription_result_speed_factor():
     assert res.speed_factor == 4.0
 
 
-def test_audio_track_defaults():
+def test_audio_track_defaults(tmp_path: Path):
+    sample_path = tmp_path / "test.mp3"
     info = AudioInfo(
-        path=Path("/home/user/test.mp3"),
+        path=sample_path,
         filename="test.mp3",
         duration=60.0,
     )
-    track = AudioTrack("/home/user/test.mp3", info)
+    track = AudioTrack(sample_path, info)
     assert track.status == TrackStatus.QUEUED
-    assert track.default_docx_path == Path("/home/user/test_transcript.docx")
+    assert track.default_docx_path == tmp_path / "test_transcript.docx"
 
     # Custom target dir
-    target_dir = Path("/custom/output")
-    assert track.effective_docx_path(target_dir) == Path("/custom/output/test_transcript.docx")
+    target_dir = tmp_path / "custom_output"
+    assert track.effective_docx_path(target_dir) == target_dir / "test_transcript.docx"

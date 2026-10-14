@@ -13,11 +13,18 @@ def test_estimate_model_ram_mb():
     assert estimate_model_ram_mb("unknown-model") == 1000
 
 
-def test_is_model_downloaded_on_disk():
-    # 'large-v3-turbo' is already downloaded in user's HuggingFace cache
-    assert is_model_downloaded_on_disk("large-v3-turbo") is True
-    # Nonexistent model
+def test_is_model_downloaded_on_disk(tmp_path, monkeypatch):
     assert is_model_downloaded_on_disk("nonexistent-model-xyz") is False
+    assert isinstance(is_model_downloaded_on_disk("large-v3-turbo"), bool)
+
+    # Deterministically verify positive detection using a mock cache structure
+    fake_cache = tmp_path / "hf_cache"
+    fake_snapshot = fake_cache / "models--Systran--faster-whisper-tiny" / "snapshots" / "main"
+    fake_snapshot.mkdir(parents=True)
+    (fake_snapshot / "model.bin").touch()
+
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(fake_cache))
+    assert is_model_downloaded_on_disk("tiny") is True
 
 
 def test_transcriber_load_and_unload_lifecycle():

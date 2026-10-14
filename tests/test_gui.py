@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 # Ensure headless offscreen platform for test runner
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
+from whisper_gui.audio_utils import get_ffmpeg_cmd
 from whisper_gui.models import AudioInfo, AudioTrack, SliceMode, TranscriptSegment
 from whisper_gui.ui.main_window import MainWindow
 from whisper_gui.ui.range_selector import RangeSelectorWidget
@@ -121,7 +122,7 @@ def test_transcript_view(qtbot, tmp_path):
 def test_track_list_widget(qtbot, tmp_path):
     # Create sample wav file
     sample_file = tmp_path / "test_track.wav"
-    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", str(sample_file)]
+    cmd = [get_ffmpeg_cmd(), "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", str(sample_file)]
     subprocess.run(cmd, check=True, capture_output=True)
 
     widget = TrackListWidget()
