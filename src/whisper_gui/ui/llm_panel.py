@@ -134,9 +134,12 @@ class LLMPanel(QWidget):
         top_layout.addWidget(self.chk_raw_appendix)
 
         top_layout.addStretch()
+
+        self.lbl_workflow_status = QLabel("")
+        top_layout.addWidget(self.lbl_workflow_status)
         main_layout.addWidget(top_bar)
 
-        # 2. Compact Settings Grid
+        # 2. Compact Settings Grid (ALWAYS interactive so users can configure & test anytime)
         self.controls_container = QWidget()
         grid = QGridLayout(self.controls_container)
         grid.setContentsMargins(4, 2, 4, 2)
@@ -238,8 +241,20 @@ class LLMPanel(QWidget):
         self.config_changed.emit()
 
     def _update_enabled_states(self) -> None:
+        # Crucial UX fix: All configuration inputs remain active so the user can
+        # paste their API key, select models, and test connections at any time.
         enabled = self.chk_enable.isChecked()
-        self.controls_container.setEnabled(enabled)
+        if hasattr(self, "lbl_workflow_status"):
+            if enabled:
+                self.lbl_workflow_status.setText("Enabled for transcriptions")
+                self.lbl_workflow_status.setStyleSheet(
+                    f"color: {COLOR_SECONDARY}; font-weight: bold; font-size: 11px;"
+                )
+            else:
+                self.lbl_workflow_status.setText("Disabled (configure & test anytime)")
+                self.lbl_workflow_status.setStyleSheet(
+                    f"color: {COLOR_TEXT_MUTED}; font-size: 11px;"
+                )
 
     def _on_provider_changed(self, provider: str) -> None:
         preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["DeepSeek"])
@@ -247,7 +262,11 @@ class LLMPanel(QWidget):
         self.combo_model.clear()
         if preset["models"]:
             self.combo_model.addItems(preset["models"])
-            self.combo_model.setCurrentText(preset["default_model"])
+            idx = self.combo_model.findText(preset["default_model"])
+            if idx >= 0:
+                self.combo_model.setCurrentIndex(idx)
+            else:
+                self.combo_model.setCurrentText(preset["default_model"])
         else:
             self.combo_model.setEditText(preset["default_model"])
         self.combo_model.blockSignals(False)
@@ -339,7 +358,7 @@ class LLMPanel(QWidget):
         self.config_changed.emit()
 
     def get_config(self) -> LLMConfig:
-        raw_model = self.combo_model.currentText().strip() or "deepseek-flash"
+        raw_model = self.combo_model.currentText().strip() or "DeepSeek V4.1 Flash"
         provider = self.combo_provider.currentText()
         normalized_model = normalize_model_name(provider, raw_model)
         return LLMConfig(
@@ -358,7 +377,22 @@ class LLMPanel(QWidget):
         idx = self.combo_provider.findText(cfg.provider)
         if idx >= 0:
             self.combo_provider.setCurrentIndex(idx)
-        self.combo_model.setCurrentText(cfg.model_name)
+
+        # Match model name in combo box with smart alias resolution
+        target = cfg.model_name
+        matched_idx = self.combo_model.findText(target, Qt.MatchFixedString)
+        if matched_idx < 0 and cfg.provider == "DeepSeek":
+            norm = normalize_model_name(cfg.provider, target)
+            if norm == "deepseek-flash":
+                matched_idx = self.combo_model.findText("DeepSeek V4.1 Flash")
+            elif norm == "deepseek-v4-pro":
+                matched_idx = self.combo_model.findText("DeepSeek V4 Pro")
+
+        if matched_idx >= 0:
+            self.combo_model.setCurrentIndex(matched_idx)
+        else:
+            self.combo_model.setCurrentText(target)
+
         self.txt_api_key.setText(cfg.api_key)
         self.txt_base_url.setText(cfg.base_url)
         self.chk_raw_appendix.setChecked(cfg.include_raw_in_docx)
@@ -396,7 +430,7 @@ class LLMPanel(QWidget):
         settings.beginGroup("LLM")
         enabled = settings.value("enabled", False, type=bool)
         provider = settings.value("provider", "DeepSeek", type=str)
-        model = settings.value("model_name", "deepseek-flash", type=str)
+        model = settings.value("model_name", "DeepSeek V4.1 Flash", type=str)
         api_key = settings.value("api_key", "", type=str)
         base_url = settings.value("base_url", "https://api.deepseek.com/v1", type=str)
         include_raw = settings.value("include_raw_docx", True, type=bool)

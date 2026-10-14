@@ -151,13 +151,18 @@ def test_llm_panel(qtbot, tmp_path):
     panel = LLMPanel()
     qtbot.addWidget(panel)
 
-    # Initial state
+    # Initial state: controls are ALWAYS interactive, toggle governs transcription only
     assert not panel.chk_enable.isChecked()
-    assert not panel.controls_container.isEnabled()
+    assert panel.controls_container.isEnabled()
+    assert panel.combo_model.currentText() == "DeepSeek V4.1 Flash"
     cfg = panel.get_config()
     assert cfg.enabled is False
     assert cfg.model_name == "deepseek-flash"
     assert cfg.provider == "DeepSeek"
+
+    # Select DeepSeek V4 Pro
+    panel.combo_model.setCurrentText("DeepSeek V4 Pro")
+    assert panel.get_config().model_name == "deepseek-v4-pro"
 
     # Toggle enable
     panel.chk_enable.setChecked(True)

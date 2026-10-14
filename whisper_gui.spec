@@ -18,15 +18,20 @@ ctranslate2_datas, ctranslate2_binaries, ctranslate2_hiddenimports = collect_all
 # Collect av (PyAV) submodules
 av_datas, av_binaries, av_hiddenimports = collect_all('av')
 
+# Collect certifi root certificates for SSL support on macOS and Linux
+certifi_datas, certifi_binaries, certifi_hiddenimports = collect_all('certifi')
+
 datas = []
 datas += docx_datas
 datas += whisper_datas
 datas += ctranslate2_datas
 datas += av_datas
+datas += certifi_datas
 
 binaries = []
 binaries += ctranslate2_binaries
 binaries += av_binaries
+binaries += certifi_binaries
 
 # If local ffmpeg/ffprobe binaries are in ./bin, include them
 project_root = Path.cwd()
@@ -64,7 +69,8 @@ hiddenimports = [
     'tokenizers',
     'onnxruntime',
     'numpy',
-] + ctranslate2_hiddenimports + av_hiddenimports
+    'certifi',
+] + ctranslate2_hiddenimports + av_hiddenimports + certifi_hiddenimports
 
 a = Analysis(
     ['main.py'],

@@ -9,10 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
 
 from whisper_gui.models import LLMConfig
 
@@ -40,26 +46,63 @@ Your mission is to transform the provided raw audio transcript into clear, fluen
    - Do NOT include conversational prefixes (e.g. "Here is the cleaned text:") or sign-offs.
 """
 
+
+def get_ssl_context() -> ssl.SSLContext:
+    """Create a resilient SSL context using certifi CA bundle if available."""
+    if certifi is not None:
+        try:
+            cafile = certifi.where()
+            if cafile and Path(cafile).is_file():
+                return ssl.create_default_context(cafile=cafile)
+        except Exception as e:
+            logger.debug("certifi cafile error: %s", e)
+
+    try:
+        return ssl.create_default_context()
+    except Exception as e:
+        logger.warning("Failed to create default SSL context, using unverified fallback: %s", e)
+        return ssl._create_unverified_context()
+
+
+def clean_chat_endpoint(base_url: str) -> str:
+    """Clean and build the /chat/completions endpoint URL from a base URL."""
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        url = "https://api.deepseek.com/v1"
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
+
+
 def normalize_model_name(provider: str, model_name: str) -> str:
     """Normalize user-entered model names to exact API endpoints."""
-    name = (model_name or "").strip()
-    if provider == "DeepSeek" or "deepseek" in name.lower():
-        low = name.lower().replace("_", "-").replace(" ", "-")
-        if "flash" in low:
-            # Official DeepSeek API route for V4.1 Flash is 'deepseek-flash'
-            return "deepseek-flash"
+    raw = (model_name or "").strip().strip("\"' ")
+    low = raw.lower().replace("_", "-").replace(" ", "-")
+
+    if provider == "DeepSeek" or "deepseek" in low:
+        # Check for Pro models first: "DeepSeek V4 Pro", "deepseek-v4-pro", "pro", "v4-pro"
         if "pro" in low:
             return "deepseek-v4-pro"
-        if not low or low == "deepseek":
+        # Check for Flash models: "DeepSeek V4.1 Flash", "DeepSeek V4 Flash", "deepseek-flash", "flash"
+        if "flash" in low or "v4.1" in low or "v4-1" in low or "chat" in low:
             return "deepseek-flash"
-    return name or "deepseek-flash"
+        if not low or low == "deepseek" or low == "default":
+            return "deepseek-flash"
+        return raw
+
+    return raw or "deepseek-flash"
 
 
 PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
     "DeepSeek": {
         "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-flash",
-        "models": ["deepseek-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+        "default_model": "DeepSeek V4.1 Flash",
+        "models": [
+            "DeepSeek V4.1 Flash",
+            "DeepSeek V4 Pro",
+            "deepseek-flash",
+            "deepseek-v4-pro",
+        ],
     },
     "OpenAI": {
         "base_url": "https://api.openai.com/v1",
@@ -135,20 +178,21 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
         if config.provider != "Custom":
             return False, "API key cannot be empty. Please enter your API key."
 
-    endpoint = f"{config.base_url.rstrip('/')}/chat/completions"
+    endpoint = clean_chat_endpoint(config.base_url)
     model_id = normalize_model_name(config.provider, config.model_name)
     payload = {
         "model": model_id,
         "messages": [
             {"role": "user", "content": "Respond with the word 'OK'."}
         ],
-        "max_tokens": 10,
-        "temperature": 0.0,
+        "max_tokens": 60,
+        "temperature": 0.3,
     }
 
     try:
         req = _build_request(endpoint, payload, config.api_key)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        ssl_ctx = get_ssl_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
             status = resp.status
             body = resp.read().decode("utf-8")
             data = json.loads(body)
@@ -169,13 +213,16 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
         if err.code == 401:
             return False, f"Authentication Failed (401): Invalid API Key. Details: {msg}"
         elif err.code == 404:
-            return False, f"Not Found (404): Endpoint '{endpoint}' or model '{config.model_name}' not found."
-        elif err.code == 429:
-            return False, f"Rate Limit / Insufficient Balance (429): {msg}"
+            return False, f"Not Found (404): Endpoint '{endpoint}' or model '{model_id}' not found."
+        elif err.code in (402, 429):
+            return False, f"Quota / Rate Limit Exceeded ({err.code}): {msg}"
         return False, f"HTTP Error {err.code}: {msg}"
 
     except urllib.error.URLError as err:
-        return False, f"Connection Failed: {err.reason}. Check internet connection or base URL."
+        reason_str = str(err.reason)
+        if "CERTIFICATE_VERIFY_FAILED" in reason_str:
+            return False, f"SSL Certificate Error: {reason_str}. Ensure system certificates or certifi are present."
+        return False, f"Connection Failed: {reason_str}. Check internet connection or base URL."
 
     except TimeoutError:
         return False, f"Request timed out after {int(timeout)}s. Check network or server status."
@@ -220,7 +267,7 @@ def polish_transcript(
     if system_prompt is None:
         system_prompt, _ = load_instructions(config)
 
-    endpoint = f"{config.base_url.rstrip('/')}/chat/completions"
+    endpoint = clean_chat_endpoint(config.base_url)
     model_id = normalize_model_name(config.provider, config.model_name)
     payload = {
         "model": model_id,
@@ -233,7 +280,8 @@ def polish_transcript(
 
     try:
         req = _build_request(endpoint, payload, config.api_key)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        ssl_ctx = get_ssl_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
             if cancel_check and cancel_check():
                 raise InterruptedError("Polishing cancelled by user.")
             body = resp.read().decode("utf-8")
@@ -242,7 +290,10 @@ def polish_transcript(
             if not choices:
                 raise RuntimeError("LLM returned an empty response with no choices.")
 
-            content = choices[0].get("message", {}).get("content", "").strip()
+            msg_obj = choices[0].get("message", {})
+            content = (msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
+            if not content:
+                raise RuntimeError("LLM returned an empty text message.")
 
             # If the LLM wrapped the entire response in markdown code blocks, unwrap it
             if content.startswith("```markdown\n") and content.endswith("```"):

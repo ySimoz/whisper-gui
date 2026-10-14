@@ -8,6 +8,8 @@ import urllib.error
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
     PROVIDER_PRESETS,
+    clean_chat_endpoint,
+    get_ssl_context,
     load_instructions,
     normalize_model_name,
     polish_transcript,
@@ -19,17 +21,41 @@ from whisper_gui.models import LLMConfig
 def test_provider_presets():
     assert "DeepSeek" in PROVIDER_PRESETS
     ds = PROVIDER_PRESETS["DeepSeek"]
-    assert ds["default_model"] == "deepseek-flash"
+    assert ds["default_model"] == "DeepSeek V4.1 Flash"
+    assert "DeepSeek V4.1 Flash" in ds["models"]
+    assert "DeepSeek V4 Pro" in ds["models"]
     assert "deepseek-flash" in ds["models"]
+    assert "deepseek-v4-pro" in ds["models"]
     assert "deepseek.com" in ds["base_url"]
 
 
+def test_clean_chat_endpoint():
+    assert clean_chat_endpoint("https://api.deepseek.com") == "https://api.deepseek.com/chat/completions"
+    assert clean_chat_endpoint("https://api.deepseek.com/v1") == "https://api.deepseek.com/v1/chat/completions"
+    assert clean_chat_endpoint("https://api.deepseek.com/v1/") == "https://api.deepseek.com/v1/chat/completions"
+    assert clean_chat_endpoint("https://api.deepseek.com/v1/chat/completions") == "https://api.deepseek.com/v1/chat/completions"
+    assert clean_chat_endpoint("") == "https://api.deepseek.com/v1/chat/completions"
+
+
 def test_normalize_model_name():
+    # Flash variants
+    assert normalize_model_name("DeepSeek", "DeepSeek V4.1 Flash") == "deepseek-flash"
+    assert normalize_model_name("DeepSeek", "DeepSeek V4 Flash") == "deepseek-flash"
     assert normalize_model_name("DeepSeek", "deepseek-v4.1-flash") == "deepseek-flash"
     assert normalize_model_name("DeepSeek", "deepseekv4.1 flash") == "deepseek-flash"
     assert normalize_model_name("DeepSeek", "deepseek-flash") == "deepseek-flash"
-    assert normalize_model_name("DeepSeek", "deepseek-pro") == "deepseek-v4-pro"
+    assert normalize_model_name("DeepSeek", "flash") == "deepseek-flash"
+    assert normalize_model_name("DeepSeek", "deepseek-chat") == "deepseek-flash"
+
+    # Pro variants
+    assert normalize_model_name("DeepSeek", "DeepSeek V4 Pro") == "deepseek-v4-pro"
+    assert normalize_model_name("DeepSeek", "deepseek-v4-pro") == "deepseek-v4-pro"
+    assert normalize_model_name("DeepSeek", "v4-pro") == "deepseek-v4-pro"
+    assert normalize_model_name("DeepSeek", "pro") == "deepseek-v4-pro"
+
+    # Other providers
     assert normalize_model_name("OpenAI", "gpt-4o") == "gpt-4o"
+    assert normalize_model_name("Groq", "llama-3.3-70b-versatile") == "llama-3.3-70b-versatile"
 
 
 def test_load_instructions_default():
@@ -83,6 +109,28 @@ def test_test_llm_connection_success():
         ok, msg = _check_conn(cfg)
         assert ok
         assert "deepseek-flash is ready" in msg
+
+
+def test_test_llm_connection_success_pro():
+    cfg = LLMConfig(
+        enabled=True,
+        provider="DeepSeek",
+        model_name="DeepSeek V4 Pro",
+        api_key="sk-pro-testkey",
+        base_url="https://api.deepseek.com",
+    )
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = json.dumps({
+        "choices": [{"message": {"role": "assistant", "content": "OK"}}]
+    }).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        ok, msg = _check_conn(cfg)
+        assert ok
+        assert "deepseek-v4-pro is ready" in msg
 
 
 def test_test_llm_connection_auth_error():
