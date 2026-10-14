@@ -43,8 +43,8 @@ def generate_icons() -> None:
         pix.save(buf, "PNG")
         return bytes(ba)
 
-    # 1. High-resolution PNG (512x512)
-    png_512 = get_png_bytes(512)
+    # 1. High-resolution PNG (1024x1024)
+    png_1024 = get_png_bytes(1024)
 
     # 2. Apple ICNS file
     icns_types = [
@@ -54,6 +54,7 @@ def generate_icons() -> None:
         (128, b"ic07"),
         (256, b"ic08"),
         (512, b"ic09"),
+        (1024, b"ic10"),
     ]
     chunks = []
     for sz, tag in icns_types:
@@ -90,7 +91,7 @@ def generate_icons() -> None:
 
     for d in target_dirs:
         d.mkdir(parents=True, exist_ok=True)
-        (d / "icon.png").write_bytes(png_512)
+        (d / "icon.png").write_bytes(png_1024)
         (d / "icon.icns").write_bytes(icns_bytes)
         (d / "icon.ico").write_bytes(ico_bytes)
         # Ensure minimal_whisper.svg is also synced

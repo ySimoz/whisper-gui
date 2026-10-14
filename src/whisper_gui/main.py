@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from whisper_gui import __version__
-from whisper_gui.platform_utils import get_app_icon
+from whisper_gui.platform_utils import get_app_icon, is_bundled
 from whisper_gui.ui.main_window import MainWindow
 
 
@@ -33,7 +33,11 @@ def main() -> int:
     # Set application icon
     app_icon = get_app_icon()
     if app_icon and not app_icon.isNull():
-        app.setWindowIcon(app_icon)
+        # On macOS inside a frozen .app bundle, macOS natively displays CFBundleIconFile (icon.icns).
+        # Calling app.setWindowIcon on macOS inside a bundle dynamically overrides NSApp.applicationIconImage.
+        # For Linux, Windows, or unbundled development runs, setWindowIcon sets taskbar and dock icon.
+        if sys.platform != "darwin" or not is_bundled():
+            app.setWindowIcon(app_icon)
 
     window = MainWindow()
     if app_icon and not app_icon.isNull():
