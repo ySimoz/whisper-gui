@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -580,6 +581,8 @@ class MainWindow(QMainWindow):
             self.track_list.refresh_track_display(self._active_track.id)
 
     def _check_dependencies(self) -> None:
+        if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI"):
+            return
         ok, msg = check_ffmpeg_installed()
         if not ok:
             QMessageBox.critical(

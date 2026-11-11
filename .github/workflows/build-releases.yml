@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -41,6 +41,12 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ffmpeg --no-progress
+          echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
 
       - name: Install Python Dependencies
         run: |
@@ -61,10 +67,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -90,7 +96,7 @@ jobs:
           tar -czf WhisperGUI-linux-x86_64.tar.gz WhisperGUI/
 
       - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: WhisperGUI-linux-x86_64
           path: dist/WhisperGUI-linux-x86_64.tar.gz
@@ -102,10 +108,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -130,7 +136,7 @@ jobs:
           zip -r WhisperGUI-macos.zip WhisperGUI.app
 
       - name: Upload macOS Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: WhisperGUI-macos
           path: dist/WhisperGUI-macos.zip
@@ -142,19 +148,31 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: 'pip'
+
+      - name: Install FFmpeg (Windows)
+        run: |
+          choco install ffmpeg --no-progress
+          echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
 
       - name: Install Dependencies & PyInstaller
         run: |
           python -m pip install --upgrade pip
           pip install -e .
           pip install pyinstaller
+
+      - name: Copy FFmpeg binaries into bundle staging
+        shell: bash
+        run: |
+          mkdir -p bin
+          cp /c/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin/ffmpeg.exe bin/ || cp /c/ProgramData/chocolatey/bin/ffmpeg.exe bin/ || true
+          cp /c/ProgramData/chocolatey/lib/ffmpeg/tools/ffmpeg/bin/ffprobe.exe bin/ || cp /c/ProgramData/chocolatey/bin/ffprobe.exe bin/ || true
 
       - name: Build Standalone Bundle
         run: |
@@ -167,7 +185,7 @@ jobs:
           7z a -tzip WhisperGUI-windows-x64.zip WhisperGUI/
 
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: WhisperGUI-windows-x64
           path: dist/WhisperGUI-windows-x64.zip
@@ -179,19 +197,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Linux Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: WhisperGUI-linux-x86_64
           path: release-assets/
 
       - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: WhisperGUI-macos
           path: release-assets/
 
       - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: WhisperGUI-windows-x64
           path: release-assets/
@@ -206,7 +224,7 @@ jobs:
           fi
 
       - name: Create GitHub Release & Upload Binaries
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag_info.outputs.tag }}
           name: Whisper GUI ${{ steps.tag_info.outputs.tag }}

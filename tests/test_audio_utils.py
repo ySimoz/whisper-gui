@@ -11,6 +11,7 @@ from whisper_gui.audio_utils import (
     check_ffmpeg_installed,
     format_seconds,
     get_audio_info,
+    get_ffmpeg_cmd,
     parse_time_str,
     slice_audio,
 )
@@ -21,7 +22,7 @@ def sample_wav_path(tmp_path: Path) -> Path:
     """Generate a clean 5-second sine wave audio file using ffmpeg."""
     out_file = tmp_path / "sample_5s.wav"
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg_cmd(), "-y",
         "-f", "lavfi",
         "-i", "sine=frequency=440:duration=5",
         str(out_file),
