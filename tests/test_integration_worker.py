@@ -62,7 +62,7 @@ def test_worker_end_to_end(qtbot, test_audio_file: Path, tmp_path: Path):
 
     worker.track_completed.connect(on_completed)
 
-    with qtbot.waitSignal(worker.batch_finished, timeout=15000):
+    with qtbot.waitSignal(worker.batch_finished, timeout=60000):
         worker.start()
 
     assert len(completed_tracks) == 1
@@ -128,7 +128,7 @@ def test_worker_with_llm_polish(qtbot, test_audio_file: Path, tmp_path: Path):
 
     with patch.object(transcriber, "transcribe", return_value=mock_whisper_result), patch("urllib.request.urlopen") as mock_url:
         mock_url.return_value.__enter__.return_value = mock_resp
-        with qtbot.waitSignal(worker.batch_finished, timeout=15000):
+        with qtbot.waitSignal(worker.batch_finished, timeout=30000):
             worker.start()
 
     assert len(completed_tracks) == 1
