@@ -248,7 +248,7 @@ class SettingsPanel(QWidget):
         layout.addLayout(ram_row)
 
         self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
-        self.chk_auto_unload.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+        self.chk_auto_unload.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED}; background-color: transparent;")
         layout.addWidget(self.chk_auto_unload)
 
         layout.addStretch()

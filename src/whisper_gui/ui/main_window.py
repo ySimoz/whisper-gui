@@ -327,7 +327,7 @@ class MainWindow(QMainWindow):
         actions_row.addWidget(self.btn_open_trim)
 
         self.chk_polish_sync = QCheckBox("Polish with AI")
-        self.chk_polish_sync.setStyleSheet("font-weight: 600;")
+        self.chk_polish_sync.setStyleSheet("font-weight: 600; background-color: transparent;")
         self.chk_polish_sync.toggled.connect(self._on_polish_sync_toggled)
         actions_row.addWidget(self.chk_polish_sync)
 

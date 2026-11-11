@@ -8,6 +8,8 @@ Minimal Swiss & AI-native palette:
 
 from __future__ import annotations
 
+from whisper_gui.platform_utils import get_asset_path
+
 # Color Palette Constants
 COLOR_PRIMARY = "#2563EB"
 COLOR_PRIMARY_HOVER = "#3B82F6"
@@ -36,6 +38,9 @@ COLOR_TEXT_MAIN = "#F8FAFC"
 COLOR_TEXT_MUTED = "#94A3B8"
 COLOR_TEXT_HINT = "#64748B"
 
+_check_asset = get_asset_path("check.svg")
+CHECK_ICON_URL = _check_asset.as_posix() if _check_asset else ""
+
 GLOBAL_STYLESHEET = f"""
 /* Global Window & Typography */
 QMainWindow, QWidget {{
@@ -56,7 +61,7 @@ QLabel {{
     background-color: transparent;
     border: none;
     border-radius: 0px;
-    padding: 0px;
+    padding: 1px 0px;
     color: {COLOR_TEXT_MAIN};
 }}
 
@@ -73,8 +78,8 @@ QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     background-color: {COLOR_BG_INPUT};
     color: {COLOR_TEXT_MAIN};
     border: 1px solid {COLOR_BORDER};
-    border-radius: 5px;
-    padding: 6px 10px;
+    border-radius: 6px;
+    padding: 8px 12px;
     selection-background-color: {COLOR_PRIMARY};
     selection-color: {COLOR_PRIMARY_TEXT};
 }}
@@ -96,7 +101,7 @@ QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{
 
 /* Dropdowns / ComboBox */
 QComboBox {{
-    padding: 6px 10px;
+    padding: 8px 12px;
 }}
 
 QComboBox::drop-down {{
@@ -104,8 +109,8 @@ QComboBox::drop-down {{
     subcontrol-position: top right;
     width: 26px;
     border-left: 1px solid {COLOR_BORDER};
-    border-top-right-radius: 5px;
-    border-bottom-right-radius: 5px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
     background-color: #172030;
 }}
 
@@ -156,11 +161,11 @@ QPushButton {{
     background-color: #334155;
     color: #F8FAFC;
     border: 1px solid #475569;
-    border-radius: 5px;
-    padding: 6px 14px;
+    border-radius: 6px;
+    padding: 7px 14px;
     font-weight: 600;
     font-size: 12px;
-    min-height: 24px;
+    min-height: 22px;
 }}
 
 QPushButton:hover {{
@@ -238,25 +243,49 @@ QHeaderView::section {{
 
 /* CheckBoxes & Radio Buttons */
 QCheckBox, QRadioButton {{
+    background-color: transparent;
     color: {COLOR_TEXT_MAIN};
-    spacing: 8px;
+    spacing: 10px;
+    min-height: 24px;
+    padding: 2px 0px;
+    font-size: 13px;
+}}
+
+QCheckBox:hover, QRadioButton:hover {{
+    color: #FFFFFF;
 }}
 
 QCheckBox::indicator, QRadioButton::indicator {{
-    width: 16px;
-    height: 16px;
-    border: 1px solid {COLOR_BORDER};
-    border-radius: 3px;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid {COLOR_BORDER_LIGHT};
+    border-radius: 4px;
     background-color: {COLOR_BG_INPUT};
 }}
 
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
-    border: 1px solid {COLOR_PRIMARY};
+    border: 1.5px solid {COLOR_PRIMARY_HOVER};
+    background-color: #172030;
 }}
 
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
     background-color: {COLOR_PRIMARY};
-    border: 1px solid {COLOR_PRIMARY};
+    border: 1.5px solid {COLOR_PRIMARY};
+    image: url({CHECK_ICON_URL});
+}}
+
+QCheckBox::indicator:checked:hover, QRadioButton::indicator:checked:hover {{
+    background-color: {COLOR_PRIMARY_HOVER};
+    border: 1.5px solid {COLOR_PRIMARY_HOVER};
+}}
+
+QCheckBox:disabled, QRadioButton:disabled {{
+    color: {COLOR_TEXT_HINT};
+}}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
+    border-color: {COLOR_BORDER};
+    background-color: #151D2A;
 }}
 
 /* Progress Bar (Solid, no gradient) */

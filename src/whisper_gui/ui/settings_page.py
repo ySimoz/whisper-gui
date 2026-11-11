@@ -152,6 +152,9 @@ class SettingsPageWidget(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
             }}
+            #sec1_card QCheckBox, #sec1_card QLabel {{
+                background-color: transparent;
+            }}
         """)
         sec1_layout = QVBoxLayout(sec1_frame)
         sec1_layout.setContentsMargins(24, 20, 24, 20)
@@ -166,6 +169,9 @@ class SettingsPageWidget(QWidget):
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
+            }}
+            #sec2_card QCheckBox, #sec2_card QLabel {{
+                background-color: transparent;
             }}
         """)
         sec2_layout = QVBoxLayout(sec2_frame)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -63,9 +63,8 @@ class InstructionEditorDialog(QDialog):
 
         self.editor = QPlainTextEdit()
         self.editor.setPlainText(current_text)
-        font = QFont("Monospace")
-        font.setStyleHint(QFont.Monospace)
-        font.setPointSize(10)
+        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font.setPointSize(11)
         self.editor.setFont(font)
         layout.addWidget(self.editor)
 
@@ -103,7 +102,7 @@ class LLMPanel(QWidget):
         main_layout.addWidget(sec_hdr)
 
         self.chk_enable = QCheckBox("Enable AI speech polishing")
-        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700; font-size: 13px;")
+        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700; font-size: 13px; background-color: transparent;")
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
         main_layout.addWidget(self.chk_enable)
 
@@ -211,7 +210,7 @@ class LLMPanel(QWidget):
 
         self.chk_raw_appendix = QCheckBox("Include raw transcript in Word document")
         self.chk_raw_appendix.setChecked(True)
-        self.chk_raw_appendix.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self.chk_raw_appendix.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background-color: transparent;")
         self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
         ctrl_layout.addWidget(self.chk_raw_appendix)
 
