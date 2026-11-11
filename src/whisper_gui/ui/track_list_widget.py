@@ -302,6 +302,10 @@ class TrackListWidget(QFrame):
     def get_tracks(self) -> list[AudioTrack]:
         return list(self._tracks)
 
+    def get_track(self, track_id: str) -> AudioTrack | None:
+        """Retrieve an AudioTrack by its unique identifier."""
+        return self._track_map.get(track_id)
+
     def get_selected_track(self) -> AudioTrack | None:
         row = self.table.currentRow()
         if 0 <= row < len(self._tracks):

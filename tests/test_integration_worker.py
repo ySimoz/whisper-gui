@@ -3,11 +3,18 @@
 import subprocess
 import time
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from docx import Document
 
 from whisper_gui.audio_utils import get_audio_info, get_ffmpeg_cmd
-from whisper_gui.models import AudioTrack, SliceConfig, SliceMode, TranscriptionConfig
+from whisper_gui.models import (
+    AudioTrack,
+    SliceConfig,
+    SliceMode,
+    TranscriptionConfig,
+    TranscriptionResult,
+)
 from whisper_gui.transcriber import Transcriber
 from whisper_gui.worker import TranscriptionWorker
 
@@ -141,3 +148,37 @@ def test_worker_with_llm_polish(qtbot, test_audio_file: Path, tmp_path: Path):
     doc_text = "\n".join(p.text for p in doc.paragraphs)
     assert "Polished & Refined Document" in doc_text
     assert "Polished audio transcript from DeepSeek." in doc_text
+
+
+def test_worker_auto_export_disabled(qtbot, tmp_path):
+    sample_file = tmp_path / "sine_no_export.wav"
+    cmd = [get_ffmpeg_cmd(), "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", str(sample_file)]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+    info = get_audio_info(sample_file)
+    track = AudioTrack(sample_file, info)
+    out_docx = tmp_path / "should_not_exist.docx"
+    track.output_docx_path = out_docx
+
+    cfg = TranscriptionConfig(
+        model_name="tiny",
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=1,
+        vad_filter=False,
+        auto_export=False,
+    )
+
+    transcriber = Transcriber()
+    mock_result = TranscriptionResult(full_text="Test manual only")
+
+    worker = TranscriptionWorker(tracks=[track], transcription_config=cfg, transcriber=transcriber)
+    completed_tracks = []
+    worker.track_completed.connect(lambda t_id, res: completed_tracks.append((t_id, res)))
+
+    with patch.object(transcriber, "transcribe", return_value=mock_result):
+        with qtbot.waitSignal(worker.batch_finished, timeout=10000):
+            worker.start()
+
+    assert len(completed_tracks) == 1
+    assert not out_docx.exists()

@@ -134,6 +134,8 @@ class TranscriptionConfig:
     beam_size: int = 5
     include_timestamps_in_docx: bool = True
     output_dir: Path | None = None
+    export_format: str = "docx"
+    auto_export: bool = True
     auto_unload_model: bool = False
     llm_config: LLMConfig = field(default_factory=LLMConfig)
 
@@ -149,6 +151,9 @@ class TranscriptionResult:
     audio_duration: float = 0.0  # Duration of the transcribed slice
     elapsed_time: float = 0.0     # Time taken to transcribe
     docx_path: Path | None = None
+    pdf_path: Path | None = None
+    md_path: Path | None = None
+    txt_path: Path | None = None
     polished_text: str | None = None
     llm_model_used: str | None = None
     llm_instructions_name: str | None = None
@@ -189,12 +194,18 @@ class AudioTrack:
         parent = self.file_path.parent
         return parent / f"{safe_stem}_transcript.docx"
 
+    def effective_export_path(self, extension: str, target_dir: Path | None = None) -> Path:
+        """Returns the destination export path for the given file extension."""
+        from whisper_gui.platform_utils import sanitize_filename
+        safe_stem = sanitize_filename(self.file_path.stem)
+        ext = extension.lstrip(".")
+        if target_dir:
+            return Path(target_dir).resolve() / f"{safe_stem}_transcript.{ext}"
+        parent = self.output_docx_path.parent if self.output_docx_path else self.file_path.parent
+        return parent / f"{safe_stem}_transcript.{ext}"
+
     def effective_docx_path(self, target_dir: Path | None = None) -> Path:
         """Returns the destination .docx path given an optional target directory."""
         if self.output_docx_path:
             return self.output_docx_path
-        from whisper_gui.platform_utils import sanitize_filename
-        safe_stem = sanitize_filename(self.file_path.stem)
-        if target_dir:
-            return target_dir / f"{safe_stem}_transcript.docx"
-        return self.default_docx_path
+        return self.effective_export_path("docx", target_dir)

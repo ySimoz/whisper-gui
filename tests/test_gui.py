@@ -3,8 +3,10 @@
 import os
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 
 # Ensure headless offscreen platform for test runner
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -76,6 +78,15 @@ def test_settings_panel(qtbot, tmp_path):
     cfg3 = panel.get_config()
     assert cfg3.output_dir == tmp_path
 
+    # Test export format & auto-export settings
+    assert cfg.export_format == "docx"
+    assert cfg.auto_export is True
+    panel.combo_export_format.setCurrentIndex(1)  # pdf
+    panel.chk_auto_export.setChecked(False)
+    cfg4 = panel.get_config()
+    assert cfg4.export_format == "pdf"
+    assert cfg4.auto_export is False
+
 
 def test_transcript_view(qtbot, tmp_path):
     view = TranscriptView()
@@ -105,17 +116,36 @@ def test_transcript_view(qtbot, tmp_path):
     view.set_progress(50, "50% done")
     assert view.progress_bar.value() == 50
 
-    # Mark completed docx
+    # Mark completed docx and test export actions
     fake_docx = tmp_path / "result.docx"
     fake_docx.touch()
     view.set_completed_docx(fake_docx)
     assert view.btn_open_docx.isEnabled()
+    assert view.btn_export.isEnabled()
     assert view.btn_open_folder.isEnabled()
+    assert view.export_menu is not None
+    assert len(view.export_menu.actions()) >= 4
+
+    # Test export triggers
+    view._on_export_format("txt")
+    txt_export = tmp_path / "result.txt"
+    assert txt_export.exists()
+
+    # Test clear confirmation prompt
+    view.txt_display.setPlainText("Some transcription text")
+    with patch("PySide6.QtWidgets.QMessageBox.question", return_value=QMessageBox.No):
+        view._on_clear_clicked()
+    assert view.txt_display.toPlainText() == "Some transcription text"
+
+    with patch("PySide6.QtWidgets.QMessageBox.question", return_value=QMessageBox.Yes):
+        view._on_clear_clicked()
+    assert view.txt_display.toPlainText() == ""
 
     # Clear view
     view.clear_view()
     assert view.txt_display.toPlainText() == ""
     assert not view.btn_open_docx.isEnabled()
+    assert not view.btn_export.isEnabled()
     assert not view.btn_view_polished.isEnabled()
 
 
@@ -136,6 +166,8 @@ def test_track_list_widget(qtbot, tmp_path):
     assert len(tracks) == 1
     assert tracks[0].info.filename == "test_track.wav"
     assert widget.table.rowCount() == 1
+    assert widget.get_track(tracks[0].id) == tracks[0]
+    assert widget.get_track("nonexistent_id") is None
 
     # Clear
     widget.clear_all()
@@ -243,8 +275,10 @@ def test_lateral_tracks_drawer(qtbot):
     qtbot.addWidget(window)
     window.show()
 
-    # Initial drawer state
+    # Initial drawer state & dropzone
     assert not window.tracks_drawer.isVisible()
+    assert window.dropzone_card.isVisible()
+    assert window.lbl_drop_title.text() == "Import File"
     assert window.btn_toggle_drawer.text() == "☰ Tracks (0)"
     assert window.btn_start.text() == "Transcribe Audio"
 

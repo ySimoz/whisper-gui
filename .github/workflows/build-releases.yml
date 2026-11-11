@@ -249,9 +249,10 @@ jobs:
 
             ### ✨ Highlights
             - **Local-First Audio Transcription**: High-accuracy offline transcription via faster-whisper (`large-v3-turbo` by default).
+            - **Click-to-Import Dropzone**: Clean drag-and-drop dropzone with one-click file picker integration.
+            - **Multi-Format Document Export**: Formatted export to Word (.docx), publication-quality PDF (.pdf), Markdown (.md), and Plain Text (.txt).
             - **Lateral Tracks Drawer**: Slide-out multi-track queue with live status pills and one-click track activation.
             - **Audio Length Trimming**: Frame-accurate FFmpeg range extraction without modifying original files.
-            - **Optional Speech Polishing**: Disfluency removal and formatting with custom instructions.
-            - **Microsoft Word (.docx) Export**: Clean document creation with metadata headers and timestamps.
+            - **Optional Speech Polishing**: Disfluency removal and grammar polishing via AI models.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

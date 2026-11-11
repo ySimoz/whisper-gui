@@ -226,6 +226,27 @@ class SettingsPanel(QWidget):
         out_row.addWidget(self.btn_clear_dir)
         layout.addLayout(out_row)
 
+        layout.addSpacing(6)
+
+        lbl_fmt = QLabel("Default Export Format")
+        lbl_fmt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_fmt)
+
+        self.combo_export_format = QComboBox()
+        self.combo_export_format.setView(QListView())
+        self.combo_export_format.addItem("Word Document (.docx)", "docx")
+        self.combo_export_format.addItem("PDF Document (.pdf)", "pdf")
+        self.combo_export_format.addItem("Markdown (.md)", "md")
+        self.combo_export_format.addItem("Plain Text (.txt)", "txt")
+        self.combo_export_format.setCurrentIndex(0)
+        self.combo_export_format.setFixedHeight(36)
+        layout.addWidget(self.combo_export_format)
+
+        self.chk_auto_export = QCheckBox("Auto-export file when transcription finishes")
+        self.chk_auto_export.setChecked(True)
+        self.chk_auto_export.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED}; background-color: transparent;")
+        layout.addWidget(self.chk_auto_export)
+
         layout.addSpacing(16)
 
         # Section 3: Memory & Performance
@@ -263,6 +284,8 @@ class SettingsPanel(QWidget):
         self.spin_threads.valueChanged.connect(self._on_setting_changed)
         self.chk_vad.toggled.connect(self._on_setting_changed)
         self.chk_timestamps.toggled.connect(self._on_setting_changed)
+        self.combo_export_format.currentIndexChanged.connect(self._on_setting_changed)
+        self.chk_auto_export.toggled.connect(self._on_setting_changed)
         self.chk_auto_unload.toggled.connect(self._on_setting_changed)
         self.btn_free_ram.clicked.connect(self.free_ram_requested.emit)
 
@@ -331,6 +354,8 @@ class SettingsPanel(QWidget):
             beam_size=5,
             include_timestamps_in_docx=self.chk_timestamps.isChecked(),
             output_dir=self._custom_output_dir,
+            export_format=str(self.combo_export_format.currentData()),
+            auto_export=self.chk_auto_export.isChecked(),
             auto_unload_model=self.chk_auto_unload.isChecked(),
         )
 
@@ -344,6 +369,8 @@ class SettingsPanel(QWidget):
         settings.setValue("cpu_threads", self.spin_threads.value())
         settings.setValue("vad_filter", self.chk_vad.isChecked())
         settings.setValue("include_timestamps", self.chk_timestamps.isChecked())
+        settings.setValue("export_format", self.combo_export_format.currentData())
+        settings.setValue("auto_export", self.chk_auto_export.isChecked())
         settings.setValue("auto_unload", self.chk_auto_unload.isChecked())
         settings.setValue("output_dir", str(self._custom_output_dir) if self._custom_output_dir else "")
         settings.endGroup()
@@ -358,6 +385,8 @@ class SettingsPanel(QWidget):
         threads = settings.value("cpu_threads", self.spin_threads.value(), type=int)
         vad = settings.value("vad_filter", True, type=bool)
         ts = settings.value("include_timestamps", True, type=bool)
+        export_fmt = settings.value("export_format", "docx", type=str)
+        auto_exp = settings.value("auto_export", True, type=bool)
         auto_unload = settings.value("auto_unload", False, type=bool)
         out_dir = settings.value("output_dir", "", type=str)
         settings.endGroup()
@@ -382,6 +411,11 @@ class SettingsPanel(QWidget):
         self.chk_vad.setChecked(vad)
         self.chk_timestamps.setChecked(ts)
         self.chk_auto_unload.setChecked(auto_unload)
+
+        idx_fmt = self.combo_export_format.findData(export_fmt)
+        if idx_fmt >= 0:
+            self.combo_export_format.setCurrentIndex(idx_fmt)
+        self.chk_auto_export.setChecked(auto_exp)
 
         if out_dir and Path(out_dir).is_dir():
             self._custom_output_dir = Path(out_dir).resolve()

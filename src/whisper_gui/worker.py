@@ -11,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThread, Signal
 
 from whisper_gui.audio_utils import CancelledError, slice_audio
-from whisper_gui.docx_exporter import export_transcript_to_docx
+from whisper_gui.exporters import export_transcript
 from whisper_gui.llm_cleaner import load_instructions, polish_transcript
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionConfig, TranscriptionResult
 from whisper_gui.transcriber import Transcriber
@@ -170,26 +170,40 @@ class TranscriptionWorker(QThread):
                 self.cancelled.emit()
                 return
 
-            # 4. Export to .docx
-            self.status_updated.emit(track.id, "Exporting Word (.docx) document...")
-            dest_docx = track.effective_docx_path(self.config.output_dir)
+            # 4. Auto-export if configured
+            fmt = getattr(self.config, "export_format", "docx").lower()
+            if getattr(self.config, "auto_export", True):
+                self.status_updated.emit(track.id, f"Exporting {fmt.upper()} document...")
+                if fmt == "docx":
+                    dest_path = track.effective_docx_path(self.config.output_dir)
+                else:
+                    dest_path = track.effective_export_path(fmt, self.config.output_dir)
 
-            final_docx_path = export_transcript_to_docx(
-                output_path=dest_docx,
-                track_info=track.info,
-                slice_config=slice_cfg,
-                transcription_config=self.config,
-                result=result,
-            )
+                final_path = export_transcript(
+                    format_name=fmt,
+                    output_path=dest_path,
+                    track_info=track.info,
+                    slice_config=slice_cfg,
+                    transcription_config=self.config,
+                    result=result,
+                )
+                if fmt == "docx":
+                    result.docx_path = final_path
+                    track.output_docx_path = final_path
+                elif fmt == "pdf":
+                    result.pdf_path = final_path
+                elif fmt == "md":
+                    result.md_path = final_path
+                elif fmt == "txt":
+                    result.txt_path = final_path
+                self.status_updated.emit(track.id, f"Saved document to {final_path.name}")
+            else:
+                self.status_updated.emit(track.id, "Transcription completed (ready to export)")
 
-            result.docx_path = final_docx_path
             track.result = result
-            track.output_docx_path = final_docx_path
             track.status = TrackStatus.COMPLETED
             track.progress_percent = 100
             track.status_message = f"Completed ({result.speed_factor:.1f}x real-time)"
-
-            self.status_updated.emit(track.id, f"Saved document to {final_docx_path.name}")
             self.track_completed.emit(track.id, result)
 
         except CancelledError:

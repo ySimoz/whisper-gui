@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QTextEdit,
@@ -19,7 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from whisper_gui.models import TranscriptSegment
+from whisper_gui.exporters import export_transcript
+from whisper_gui.models import (
+    AudioTrack,
+    TranscriptionConfig,
+    TranscriptionResult,
+    TranscriptSegment,
+)
 from whisper_gui.platform_utils import open_path_in_os, reveal_file_in_os
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
@@ -43,6 +51,10 @@ class TranscriptView(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_docx_path: Path | None = None
+        self._current_track: AudioTrack | None = None
+        self._current_result: TranscriptionResult | None = None
+        self._current_config: TranscriptionConfig | None = None
+        self._exported_paths: dict[str, Path] = {}
         self._raw_segments: list[TranscriptSegment] = []
         self._polished_text: str | None = None
         self._active_mode: str = "raw"  # "raw" or "polished"
@@ -178,20 +190,63 @@ class TranscriptView(QFrame):
         """)
         btn_layout.addWidget(self.btn_copy)
 
-        self.btn_open_docx = QPushButton("Word (.docx)")
-        self.btn_open_docx.setStyleSheet(f"""
+        self.btn_export = QPushButton("Export ▾")
+        self.btn_export.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_BG_SURFACE};
                 font-weight: 600;
                 padding: 6px 14px;
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+                width: 0px;
             }}
             QPushButton:enabled {{
                 border-color: {COLOR_PRIMARY};
                 color: {COLOR_PRIMARY};
             }}
         """)
-        self.btn_open_docx.setEnabled(False)
-        btn_layout.addWidget(self.btn_open_docx)
+        self.btn_export.setEnabled(False)
+        self.btn_open_docx = self.btn_export  # Compatibility alias
+
+        self.export_menu = QMenu(self)
+        self.export_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px 6px 12px;
+                border-radius: 4px;
+                color: {COLOR_TEXT_MAIN};
+            }}
+            QMenu::item:selected {{
+                background-color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
+            }}
+        """)
+
+        act_docx = self.export_menu.addAction("Word (.docx)")
+        act_docx.triggered.connect(lambda: self._on_export_format("docx"))
+
+        act_pdf = self.export_menu.addAction("PDF (.pdf)")
+        act_pdf.triggered.connect(lambda: self._on_export_format("pdf"))
+
+        act_md = self.export_menu.addAction("Markdown (.md)")
+        act_md.triggered.connect(lambda: self._on_export_format("md"))
+
+        act_txt = self.export_menu.addAction("Plain Text (.txt)")
+        act_txt.triggered.connect(lambda: self._on_export_format("txt"))
+
+        self.export_menu.addSeparator()
+
+        act_folder = self.export_menu.addAction("Open Output Folder")
+        act_folder.triggered.connect(self._open_containing_folder)
+
+        self.btn_export.setMenu(self.export_menu)
+        btn_layout.addWidget(self.btn_export)
 
         self.btn_open_folder = QPushButton("Open Folder")
         self.btn_open_folder.setStyleSheet("padding: 6px 12px;")
@@ -208,10 +263,9 @@ class TranscriptView(QFrame):
         # Connect signals
         self.btn_view_raw.clicked.connect(lambda: self._switch_view("raw"))
         self.btn_view_polished.clicked.connect(lambda: self._switch_view("polished"))
-        self.btn_open_docx.clicked.connect(self._open_docx_file)
         self.btn_open_folder.clicked.connect(self._open_containing_folder)
         self.btn_copy.clicked.connect(self._copy_text)
-        self.btn_clear.clicked.connect(self.clear_view)
+        self.btn_clear.clicked.connect(self._on_clear_clicked)
 
     def set_status(self, message: str) -> None:
         """Update the status label."""
@@ -266,17 +320,67 @@ class TranscriptView(QFrame):
                 cursor.insertHtml(f"{ts_html}{text_html}")
             self.txt_display.setTextCursor(cursor)
 
-    def set_completed_docx(self, docx_path: Path) -> None:
-        """Mark document as ready and enable open actions."""
-        self._current_docx_path = docx_path
-        self.btn_open_docx.setEnabled(True)
+    def set_completed_track(
+        self,
+        track: AudioTrack,
+        result: TranscriptionResult,
+        config: TranscriptionConfig | None = None,
+    ) -> None:
+        """Store active completed track and result for on-demand multi-format export."""
+        self._current_track = track
+        self._current_result = result
+        self._current_config = config
+
+        if result.docx_path:
+            self._current_docx_path = result.docx_path
+            self._exported_paths["docx"] = result.docx_path
+        if result.pdf_path:
+            self._exported_paths["pdf"] = result.pdf_path
+        if result.md_path:
+            self._exported_paths["md"] = result.md_path
+        if result.txt_path:
+            self._exported_paths["txt"] = result.txt_path
+
+        self.btn_export.setEnabled(True)
         self.btn_open_folder.setEnabled(True)
+
+    def set_completed_docx(self, docx_path: Path) -> None:
+        """Mark document as ready and enable export/folder actions."""
+        self._current_docx_path = docx_path
+        self._exported_paths["docx"] = docx_path
+        self.btn_export.setEnabled(True)
+        self.btn_open_folder.setEnabled(True)
+
+    def _on_clear_clicked(self) -> None:
+        """Prompt confirmation if content exists before clearing transcript view."""
+        has_content = bool(
+            self.txt_display.toPlainText().strip()
+            or self._raw_segments
+            or self._current_track
+        )
+        if has_content:
+            reply = QMessageBox.question(
+                self,
+                "Clear Transcript",
+                "Are you sure you want to clear the transcript? Any unsaved text will be removed.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+        self.clear_view()
 
     def clear_view(self) -> None:
         """Clear transcription output and reset progress."""
         self._raw_segments.clear()
         self._polished_text = None
         self._active_mode = "raw"
+        self._current_track = None
+        self._current_result = None
+        self._current_config = None
+        self._exported_paths.clear()
+        self._current_docx_path = None
+
         self.txt_display.clear()
         self.progress_bar.setValue(0)
         self.lbl_status.setText("Status: Idle")
@@ -284,25 +388,84 @@ class TranscriptView(QFrame):
         self.lbl_view_hint.setText("")
         self.btn_view_raw.setChecked(True)
         self.btn_view_polished.setEnabled(False)
-        self._current_docx_path = None
-        self.btn_open_docx.setEnabled(False)
+        self.btn_export.setEnabled(False)
         self.btn_open_folder.setEnabled(False)
 
+    def _on_export_format(self, fmt: str) -> None:
+        """Export or open the requested format: 'docx', 'pdf', 'md', 'txt'."""
+        try:
+            # 1. Open if already exported and exists
+            existing_path = self._exported_paths.get(fmt)
+            if existing_path and existing_path.exists():
+                success = open_path_in_os(existing_path)
+                if success:
+                    self.lbl_status.setText(f"Status: Opened {existing_path.name}")
+                else:
+                    self.lbl_status.setText(f"Status: Saved {existing_path.name}")
+                return
+
+            # 2. Determine target path
+            if self._current_track:
+                target_dir = self._current_config.output_dir if self._current_config else None
+                out_path = self._current_track.effective_export_path(fmt, target_dir)
+            elif self._current_docx_path:
+                out_path = self._current_docx_path.with_suffix(f".{fmt}")
+            else:
+                out_path = Path.home() / f"transcript.{fmt}"
+
+            # 3. Perform export
+            result_obj = self._current_result or TranscriptionResult(
+                full_text=self.txt_display.toPlainText(),
+                segments=self._raw_segments,
+                polished_text=self._polished_text,
+            )
+            saved_path = export_transcript(
+                format_name=fmt,
+                output_path=out_path,
+                track_info=self._current_track.info if self._current_track else None,
+                slice_config=self._current_track.slice_config if self._current_track else None,
+                transcription_config=self._current_config,
+                result=result_obj,
+            )
+            self._exported_paths[fmt] = saved_path
+            if fmt == "docx":
+                self._current_docx_path = saved_path
+
+            # 4. Open with default OS viewer
+            success = open_path_in_os(saved_path)
+            if success:
+                self.lbl_status.setText(f"Status: Exported & opened {saved_path.name}")
+            else:
+                self.lbl_status.setText(f"Status: Exported to {saved_path.name}")
+        except Exception as e:
+            self.lbl_status.setText(f"Export Error: {e}")
+
     def _open_docx_file(self) -> None:
-        if self._current_docx_path and self._current_docx_path.exists():
-            success = open_path_in_os(self._current_docx_path)
-            if not success:
-                self.lbl_status.setText(f"Could not open file: {self._current_docx_path.name}")
+        self._on_export_format("docx")
 
     def _open_containing_folder(self) -> None:
-        if self._current_docx_path and self._current_docx_path.exists():
-            success = reveal_file_in_os(self._current_docx_path)
-            if not success:
-                self.lbl_status.setText(f"Could not open directory: {self._current_docx_path.parent}")
-        elif self._current_docx_path and self._current_docx_path.parent.exists():
-            success = open_path_in_os(self._current_docx_path.parent)
-            if not success:
-                self.lbl_status.setText(f"Could not open directory: {self._current_docx_path.parent}")
+        target = self._current_docx_path
+        if not target and self._exported_paths:
+            target = next(iter(self._exported_paths.values()))
+        if not target and self._current_track:
+            target = self._current_track.file_path
+        if not target and self._current_config and self._current_config.output_dir:
+            target = self._current_config.output_dir
+
+        if target:
+            p = Path(target).resolve()
+            if p.is_file():
+                success = reveal_file_in_os(p)
+                if not success and p.parent.exists():
+                    open_path_in_os(p.parent)
+            elif p.is_dir() and p.exists():
+                open_path_in_os(p)
+            elif p.parent.exists():
+                open_path_in_os(p.parent)
+            else:
+                self.lbl_status.setText(f"Status: Directory not found: {p}")
+        else:
+            self.lbl_status.setText("Status: No output folder available")
 
     def _copy_text(self) -> None:
         clipboard = QGuiApplication.clipboard()

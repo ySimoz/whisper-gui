@@ -6,8 +6,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont
+from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
-from whisper_gui.platform_utils import get_app_icon
+from whisper_gui.platform_utils import get_app_icon, get_asset_path
 from whisper_gui.transcriber import Transcriber
 from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.range_selector import RangeSelectorWidget, TrimAudioDialog
@@ -59,6 +59,22 @@ from whisper_gui.ui.theme import (
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
 from whisper_gui.worker import TranscriptionWorker
+
+
+class DropzoneCard(QFrame):
+    """Clickable dropzone card for importing audio files."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._click_callback = None
+
+    def set_click_callback(self, cb) -> None:
+        self._click_callback = cb
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._click_callback:
+            self._click_callback()
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -229,14 +245,20 @@ class MainWindow(QMainWindow):
         center_layout.setSpacing(10)
 
         # Dropzone (shown when 0 tracks loaded)
-        self.dropzone_card = QFrame()
+        self.dropzone_card = DropzoneCard()
         self.dropzone_card.setObjectName("dropzone_card")
         self.dropzone_card.setMinimumHeight(180)
+        self.dropzone_card.setCursor(Qt.PointingHandCursor)
+        self.dropzone_card.set_click_callback(self.track_list._on_add_files_clicked)
         self.dropzone_card.setStyleSheet(f"""
             #dropzone_card {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 2px dashed {COLOR_BORDER_LIGHT};
                 border-radius: 8px;
+            }}
+            #dropzone_card:hover {{
+                border-color: {COLOR_PRIMARY};
+                background-color: #243247;
             }}
             QLabel {{
                 border: none;
@@ -245,42 +267,21 @@ class MainWindow(QMainWindow):
         """)
         drop_layout = QVBoxLayout(self.dropzone_card)
         drop_layout.setContentsMargins(24, 32, 24, 32)
-        drop_layout.setSpacing(14)
+        drop_layout.setSpacing(12)
         drop_layout.setAlignment(Qt.AlignCenter)
 
-        drop_title = QLabel("Drop audio file or folder here")
-        drop_title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLOR_TEXT_MAIN};")
-        drop_title.setAlignment(Qt.AlignCenter)
-        drop_layout.addWidget(drop_title)
+        self.lbl_drop_title = QLabel("Import File")
+        self.lbl_drop_title.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {COLOR_TEXT_MAIN};")
+        self.lbl_drop_title.setAlignment(Qt.AlignCenter)
+        drop_layout.addWidget(self.lbl_drop_title)
 
-        drop_btn_row = QHBoxLayout()
-        drop_btn_row.setSpacing(12)
-        drop_btn_row.setAlignment(Qt.AlignCenter)
+        self.lbl_drop_icon = QLabel()
+        self.lbl_drop_icon.setAlignment(Qt.AlignCenter)
+        upload_icon_path = get_asset_path("upload_icon.svg")
+        if upload_icon_path:
+            self.lbl_drop_icon.setPixmap(QIcon(str(upload_icon_path)).pixmap(QSize(56, 56)))
+        drop_layout.addWidget(self.lbl_drop_icon)
 
-        self.btn_select_file = QPushButton("Choose File")
-        self.btn_select_file.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                font-weight: 600;
-                padding: 8px 18px;
-                border-radius: 4px;
-                border: none;
-                min-height: 24px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_PRIMARY_HOVER};
-            }}
-        """)
-        self.btn_select_file.clicked.connect(self.track_list._on_add_files_clicked)
-        drop_btn_row.addWidget(self.btn_select_file)
-
-        self.btn_select_folder = QPushButton("Choose Folder")
-        self.btn_select_folder.setStyleSheet("padding: 8px 16px; min-height: 24px;")
-        self.btn_select_folder.clicked.connect(self.track_list._on_add_folder_clicked)
-        drop_btn_row.addWidget(self.btn_select_folder)
-
-        drop_layout.addLayout(drop_btn_row)
         center_layout.addWidget(self.dropzone_card)
 
         # Active Track Card (shown when >= 1 track loaded)
@@ -595,8 +596,10 @@ class MainWindow(QMainWindow):
     def _on_track_selected(self, track: AudioTrack | None) -> None:
         if track:
             self._set_active_track(track)
-            if track.result and track.result.docx_path:
-                self.transcript_view.set_completed_docx(track.result.docx_path)
+            if track.result:
+                self.transcript_view.set_completed_track(
+                    track, track.result, self.settings_panel.get_config()
+                )
                 if track.result.polished_text:
                     self.transcript_view.set_polished_text(
                         track.result.polished_text, track.result.llm_model_used or ""
@@ -709,8 +712,18 @@ class MainWindow(QMainWindow):
             self.transcript_view.set_polished_text(
                 result.polished_text, result.llm_model_used or ""
             )
-        if result.docx_path:
+        track = self.track_list.get_track(track_id)
+        if track:
+            self.transcript_view.set_completed_track(
+                track, result, self.settings_panel.get_config()
+            )
+        elif result.docx_path:
             self.transcript_view.set_completed_docx(result.docx_path)
+        else:
+            self.transcript_view.btn_export.setEnabled(True)
+            self.transcript_view.btn_open_folder.setEnabled(True)
+
+        if result.docx_path:
             self.status_bar.showMessage(f"Saved: {result.docx_path.name}")
         if self.transcriber.is_loaded:
             self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
