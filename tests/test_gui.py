@@ -201,6 +201,13 @@ def test_llm_panel(qtbot, tmp_path):
     assert panel.controls_container.isEnabled()
     assert panel.get_config().enabled is True
 
+    # Switch provider to Anthropic (Claude)
+    panel.combo_provider.setCurrentText("Anthropic (Claude)")
+    cfg_claude = panel.get_config()
+    assert cfg_claude.provider == "Anthropic (Claude)"
+    assert cfg_claude.model_name == "claude-3-7-sonnet-20250219"
+    assert "api.anthropic.com" in cfg_claude.base_url
+
     # Switch provider to OpenAI
     panel.combo_provider.setCurrentText("OpenAI")
     cfg_openai = panel.get_config()

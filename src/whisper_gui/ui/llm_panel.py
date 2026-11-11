@@ -123,7 +123,7 @@ class LLMPanel(QWidget):
 
         self.combo_provider = QComboBox()
         self.combo_provider.setView(QListView())
-        self.combo_provider.addItems(["DeepSeek", "OpenAI", "Groq", "Custom"])
+        self.combo_provider.addItems(["DeepSeek", "Anthropic (Claude)", "OpenAI", "Groq", "Custom"])
         self.combo_provider.setFixedHeight(36)
         self.combo_provider.currentTextChanged.connect(self._on_provider_changed)
         ctrl_layout.addWidget(self.combo_provider)
@@ -257,6 +257,7 @@ class LLMPanel(QWidget):
         self.combo_model.blockSignals(False)
 
         self.txt_base_url.setText(preset["base_url"])
+        self.txt_base_url.setPlaceholderText(preset["base_url"])
         self.lbl_conn_status.setText("")
         self.config_changed.emit()
 
@@ -362,6 +363,10 @@ class LLMPanel(QWidget):
         idx = self.combo_provider.findText(cfg.provider)
         if idx >= 0:
             self.combo_provider.setCurrentIndex(idx)
+        elif "claude" in cfg.provider.lower() or "anthropic" in cfg.provider.lower():
+            idx = self.combo_provider.findText("Anthropic (Claude)")
+            if idx >= 0:
+                self.combo_provider.setCurrentIndex(idx)
 
         # Match model name in combo box with smart alias resolution
         target = cfg.model_name
@@ -372,6 +377,9 @@ class LLMPanel(QWidget):
                 matched_idx = self.combo_model.findText("DeepSeek V4.1 Flash")
             elif norm == "deepseek-v4-pro":
                 matched_idx = self.combo_model.findText("DeepSeek V4 Pro")
+        elif matched_idx < 0 and ("anthropic" in cfg.provider.lower() or "claude" in cfg.provider.lower()):
+            norm = normalize_model_name(cfg.provider, target)
+            matched_idx = self.combo_model.findText(norm, Qt.MatchFixedString)
 
         if matched_idx >= 0:
             self.combo_model.setCurrentIndex(matched_idx)

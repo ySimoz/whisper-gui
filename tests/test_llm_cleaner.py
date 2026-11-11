@@ -8,8 +8,10 @@ import urllib.error
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
     PROVIDER_PRESETS,
+    _build_request,
     clean_chat_endpoint,
     get_ssl_context,
+    is_anthropic_provider,
     load_instructions,
     normalize_model_name,
     polish_transcript,
@@ -28,6 +30,21 @@ def test_provider_presets():
     assert "deepseek-v4-pro" in ds["models"]
     assert "deepseek.com" in ds["base_url"]
 
+    # Anthropic / Claude preset
+    assert "Anthropic (Claude)" in PROVIDER_PRESETS
+    claude = PROVIDER_PRESETS["Anthropic (Claude)"]
+    assert claude["default_model"] == "claude-3-7-sonnet-20250219"
+    assert "claude-3-7-sonnet-20250219" in claude["models"]
+    assert "claude-3-5-sonnet-20241022" in claude["models"]
+    assert "claude-3-5-haiku-20241022" in claude["models"]
+    assert "claude-3-opus-20240229" in claude["models"]
+    assert "claude-3-haiku-20240307" in claude["models"]
+    assert "api.anthropic.com" in claude["base_url"]
+
+    # Aliases
+    assert PROVIDER_PRESETS["Claude"] == claude
+    assert PROVIDER_PRESETS["Anthropic"] == claude
+
 
 def test_clean_chat_endpoint():
     assert clean_chat_endpoint("https://api.deepseek.com") == "https://api.deepseek.com/chat/completions"
@@ -35,6 +52,13 @@ def test_clean_chat_endpoint():
     assert clean_chat_endpoint("https://api.deepseek.com/v1/") == "https://api.deepseek.com/v1/chat/completions"
     assert clean_chat_endpoint("https://api.deepseek.com/v1/chat/completions") == "https://api.deepseek.com/v1/chat/completions"
     assert clean_chat_endpoint("") == "https://api.deepseek.com/v1/chat/completions"
+
+    # Anthropic endpoint resolution
+    assert clean_chat_endpoint("", "Anthropic (Claude)") == "https://api.anthropic.com/v1/messages"
+    assert clean_chat_endpoint("https://api.anthropic.com", "Anthropic (Claude)") == "https://api.anthropic.com/v1/messages"
+    assert clean_chat_endpoint("https://api.anthropic.com/v1", "Anthropic (Claude)") == "https://api.anthropic.com/v1/messages"
+    assert clean_chat_endpoint("https://api.anthropic.com/v1/messages", "Anthropic (Claude)") == "https://api.anthropic.com/v1/messages"
+    assert clean_chat_endpoint("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
 
 
 def test_normalize_model_name():
@@ -52,6 +76,19 @@ def test_normalize_model_name():
     assert normalize_model_name("DeepSeek", "deepseek-v4-pro") == "deepseek-v4-pro"
     assert normalize_model_name("DeepSeek", "v4-pro") == "deepseek-v4-pro"
     assert normalize_model_name("DeepSeek", "pro") == "deepseek-v4-pro"
+
+    # Anthropic / Claude variants
+    assert normalize_model_name("Anthropic (Claude)", "claude-3-7-sonnet-20250219") == "claude-3-7-sonnet-20250219"
+    assert normalize_model_name("Anthropic (Claude)", "Claude 3.7 Sonnet") == "claude-3-7-sonnet-20250219"
+    assert normalize_model_name("Anthropic (Claude)", "claude-3.7-sonnet") == "claude-3-7-sonnet-20250219"
+    assert normalize_model_name("Anthropic (Claude)", "sonnet-3.7") == "claude-3-7-sonnet-20250219"
+    assert normalize_model_name("Anthropic (Claude)", "Claude 3.5 Sonnet") == "claude-3-5-sonnet-20241022"
+    assert normalize_model_name("Anthropic (Claude)", "sonnet") == "claude-3-5-sonnet-20241022"
+    assert normalize_model_name("Anthropic (Claude)", "Claude 3.5 Haiku") == "claude-3-5-haiku-20241022"
+    assert normalize_model_name("Anthropic (Claude)", "Claude 3 Opus") == "claude-3-opus-20240229"
+    assert normalize_model_name("Anthropic (Claude)", "opus") == "claude-3-opus-20240229"
+    assert normalize_model_name("Anthropic (Claude)", "haiku") == "claude-3-haiku-20240307"
+    assert normalize_model_name("Anthropic (Claude)", "") == "claude-3-7-sonnet-20250219"
 
     # Other providers
     assert normalize_model_name("OpenAI", "gpt-4o") == "gpt-4o"
@@ -210,3 +247,82 @@ def test_polish_transcript_empty_text():
     cfg = LLMConfig(enabled=True)
     assert polish_transcript("", cfg) == ""
     assert polish_transcript("   ", cfg) == ""
+
+
+def test_anthropic_build_request_headers():
+    req = _build_request(
+        url="https://api.anthropic.com/v1/messages",
+        payload={"model": "claude-3-7-sonnet-20250219"},
+        api_key="sk-ant-api03-testkey",
+        provider="Anthropic (Claude)",
+    )
+    assert req.headers["X-api-key"] == "sk-ant-api03-testkey"
+    assert req.headers["Anthropic-version"] == "2023-06-01"
+    assert "Authorization" not in req.headers
+
+
+def test_test_llm_connection_anthropic_success():
+    cfg = LLMConfig(
+        enabled=True,
+        provider="Anthropic (Claude)",
+        model_name="claude-3-7-sonnet-20250219",
+        api_key="sk-ant-test123",
+        base_url="https://api.anthropic.com/v1",
+    )
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = json.dumps({
+        "id": "msg_123",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "OK"}],
+        "model": "claude-3-7-sonnet-20250219",
+    }).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        ok, msg = _check_conn(cfg)
+        assert ok
+        assert "claude-3-7-sonnet-20250219 is ready" in msg
+
+        # Inspect request
+        called_req = mock_urlopen.call_args[0][0]
+        assert called_req.full_url == "https://api.anthropic.com/v1/messages"
+        assert called_req.headers["X-api-key"] == "sk-ant-test123"
+        assert called_req.headers["Anthropic-version"] == "2023-06-01"
+
+
+def test_polish_transcript_anthropic_success():
+    cfg = LLMConfig(
+        enabled=True,
+        provider="Anthropic (Claude)",
+        model_name="claude-3-7-sonnet-20250219",
+        api_key="sk-ant-test123",
+        base_url="https://api.anthropic.com/v1",
+    )
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({
+        "id": "msg_456",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "Polished text cleanly produced by Claude."}
+        ],
+        "model": "claude-3-7-sonnet-20250219",
+    }).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = polish_transcript("Raw transcription input text", cfg)
+        assert result == "Polished text cleanly produced by Claude."
+
+        called_req = mock_urlopen.call_args[0][0]
+        sent_payload = json.loads(called_req.data.decode("utf-8"))
+        assert sent_payload["model"] == "claude-3-7-sonnet-20250219"
+        assert sent_payload["max_tokens"] == 4096
+        assert "Speech & Transcript Polishing Instructions" in sent_payload["system"]
+        assert sent_payload["messages"] == [
+            {"role": "user", "content": "Raw transcription input text"}
+        ]

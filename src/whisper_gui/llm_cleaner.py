@@ -1,7 +1,7 @@
 """LLM client for polishing and reformatting raw speech-to-text transcripts.
 
-Compatible with any OpenAI-compatible /chat/completions REST endpoint,
-including DeepSeek (v4.1 flash, v3), OpenAI, Groq, OpenRouter, and Ollama.
+Supports Anthropic (Claude 3.7 Sonnet, Claude 3.5 Sonnet/Haiku, Opus) and
+OpenAI-compatible REST endpoints, including DeepSeek, OpenAI, Groq, and Ollama.
 Uses Python's standard library urllib for zero external dependencies.
 """
 
@@ -64,11 +64,28 @@ def get_ssl_context() -> ssl.SSLContext:
         return ssl._create_unverified_context()
 
 
-def clean_chat_endpoint(base_url: str) -> str:
-    """Clean and build the /chat/completions endpoint URL from a base URL."""
+def is_anthropic_provider(provider: str = "", base_url: str = "") -> bool:
+    """Check if the configured provider or base URL points to Anthropic."""
+    p = (provider or "").lower()
+    u = (base_url or "").lower()
+    return "anthropic" in p or "claude" in p or "anthropic.com" in u
+
+
+def clean_chat_endpoint(base_url: str, provider: str = "") -> str:
+    """Clean and build the API endpoint URL from a base URL."""
     url = (base_url or "").strip().rstrip("/")
     if not url:
-        url = "https://api.deepseek.com/v1"
+        if is_anthropic_provider(provider):
+            return "https://api.anthropic.com/v1/messages"
+        return "https://api.deepseek.com/v1/chat/completions"
+
+    if is_anthropic_provider(provider, url):
+        if url.endswith("/messages"):
+            return url
+        if not url.endswith("/v1"):
+            url = f"{url}/v1"
+        return f"{url}/messages"
+
     if url.endswith("/chat/completions"):
         return url
     return f"{url}/chat/completions"
@@ -90,6 +107,34 @@ def normalize_model_name(provider: str, model_name: str) -> str:
             return "deepseek-flash"
         return raw
 
+    if is_anthropic_provider(provider, ""):
+        # Exact matching if already valid
+        if raw in (
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-haiku-20240307",
+            "claude-3-7-sonnet-latest",
+            "claude-3-5-sonnet-latest",
+            "claude-3-5-haiku-latest",
+        ):
+            return raw
+
+        if "3-7-sonnet" in low or "3.7-sonnet" in low or "3-7" in low or "3.7" in low:
+            return "claude-3-7-sonnet-20250219"
+        if "3-5-sonnet" in low or "3.5-sonnet" in low or ("sonnet" in low and "3-7" not in low and "3.7" not in low):
+            return "claude-3-5-sonnet-20241022"
+        if "3-5-haiku" in low or "3.5-haiku" in low:
+            return "claude-3-5-haiku-20241022"
+        if "opus" in low:
+            return "claude-3-opus-20240229"
+        if "haiku" in low:
+            return "claude-3-haiku-20240307"
+        if not low or low in ("claude", "anthropic", "default"):
+            return "claude-3-7-sonnet-20250219"
+        return raw
+
     return raw or "deepseek-flash"
 
 
@@ -102,6 +147,17 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
             "DeepSeek V4 Pro",
             "deepseek-flash",
             "deepseek-v4-pro",
+        ],
+    },
+    "Anthropic (Claude)": {
+        "base_url": "https://api.anthropic.com/v1",
+        "default_model": "claude-3-7-sonnet-20250219",
+        "models": [
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-haiku-20240307",
         ],
     },
     "OpenAI": {
@@ -120,6 +176,10 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
         "models": [],
     },
 }
+
+# Provider aliases
+PROVIDER_PRESETS["Claude"] = PROVIDER_PRESETS["Anthropic (Claude)"]
+PROVIDER_PRESETS["Anthropic"] = PROVIDER_PRESETS["Anthropic (Claude)"]
 
 
 def load_instructions(config: LLMConfig) -> tuple[str, str]:
@@ -150,20 +210,30 @@ def load_instructions(config: LLMConfig) -> tuple[str, str]:
     return DEFAULT_INSTRUCTION_PROMPT.strip(), "Default Instructions"
 
 
-def _build_request(url: str, payload: dict[str, Any], api_key: str) -> urllib.request.Request:
-    """Build a urllib Request with appropriate headers for OpenAI-compatible APIs."""
+def _build_request(
+    url: str,
+    payload: dict[str, Any],
+    api_key: str,
+    provider: str = "",
+) -> urllib.request.Request:
+    """Build a urllib Request with appropriate headers for OpenAI or Anthropic APIs."""
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "WhisperGUI/1.0",
+    }
+    if is_anthropic_provider(provider, url):
+        headers["x-api-key"] = api_key.strip()
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    return urllib.request.Request(
         url=url,
         data=data,
         method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key.strip()}",
-            "User-Agent": "WhisperGUI/1.0",
-        },
+        headers=headers,
     )
-    return req
 
 
 def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool, str]:
@@ -174,32 +244,51 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
     """
     if not config.api_key or not config.api_key.strip():
         # Some local servers like Ollama don't strictly require an API key,
-        # but for cloud providers like DeepSeek or OpenAI it's mandatory.
+        # but for cloud providers like DeepSeek, Anthropic, or OpenAI it's mandatory.
         if config.provider != "Custom":
             return False, "API key cannot be empty. Please enter your API key."
 
-    endpoint = clean_chat_endpoint(config.base_url)
+    is_anthropic = is_anthropic_provider(config.provider, config.base_url)
+    endpoint = clean_chat_endpoint(config.base_url, config.provider)
     model_id = normalize_model_name(config.provider, config.model_name)
-    payload = {
-        "model": model_id,
-        "messages": [
-            {"role": "user", "content": "Respond with the word 'OK'."}
-        ],
-        "max_tokens": 60,
-        "temperature": 0.3,
-    }
+
+    if is_anthropic:
+        payload = {
+            "model": model_id,
+            "max_tokens": 50,
+            "messages": [
+                {"role": "user", "content": "Respond with the word 'OK'."}
+            ],
+            "temperature": 0.3,
+        }
+    else:
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "user", "content": "Respond with the word 'OK'."}
+            ],
+            "max_tokens": 60,
+            "temperature": 0.3,
+        }
 
     try:
-        req = _build_request(endpoint, payload, config.api_key)
+        req = _build_request(endpoint, payload, config.api_key, config.provider)
         ssl_ctx = get_ssl_context()
         with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
             status = resp.status
             body = resp.read().decode("utf-8")
             data = json.loads(body)
-            choices = data.get("choices", [])
-            if choices:
-                return True, f"Connection successful: {model_id} is ready."
-            return True, f"Connection verified (HTTP {status})."
+
+            if is_anthropic:
+                content_blocks = data.get("content", [])
+                if content_blocks:
+                    return True, f"Connection successful: {model_id} is ready."
+                return True, f"Connection verified (HTTP {status})."
+            else:
+                choices = data.get("choices", [])
+                if choices:
+                    return True, f"Connection successful: {model_id} is ready."
+                return True, f"Connection verified (HTTP {status})."
 
     except urllib.error.HTTPError as err:
         err_body = ""
@@ -267,31 +356,57 @@ def polish_transcript(
     if system_prompt is None:
         system_prompt, _ = load_instructions(config)
 
-    endpoint = clean_chat_endpoint(config.base_url)
+    is_anthropic = is_anthropic_provider(config.provider, config.base_url)
+    endpoint = clean_chat_endpoint(config.base_url, config.provider)
     model_id = normalize_model_name(config.provider, config.model_name)
-    payload = {
-        "model": model_id,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text},
-        ],
-        "temperature": 0.3,
-    }
+
+    if is_anthropic:
+        payload = {
+            "model": model_id,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": [
+                {"role": "user", "content": raw_text},
+            ],
+            "temperature": 0.3,
+        }
+    else:
+        payload = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": raw_text},
+            ],
+            "temperature": 0.3,
+        }
 
     try:
-        req = _build_request(endpoint, payload, config.api_key)
+        req = _build_request(endpoint, payload, config.api_key, config.provider)
         ssl_ctx = get_ssl_context()
         with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
             if cancel_check and cancel_check():
                 raise InterruptedError("Polishing cancelled by user.")
             body = resp.read().decode("utf-8")
             data = json.loads(body)
-            choices = data.get("choices", [])
-            if not choices:
-                raise RuntimeError("LLM returned an empty response with no choices.")
 
-            msg_obj = choices[0].get("message", {})
-            content = (msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
+            if is_anthropic:
+                content_blocks = data.get("content", [])
+                if not content_blocks:
+                    raise RuntimeError("Anthropic returned an empty response with no content blocks.")
+                text_parts = [
+                    b.get("text", "")
+                    for b in content_blocks
+                    if b.get("type") == "text" or "text" in b
+                ]
+                content = "\n".join(text_parts).strip()
+            else:
+                choices = data.get("choices", [])
+                if not choices:
+                    raise RuntimeError("LLM returned an empty response with no choices.")
+
+                msg_obj = choices[0].get("message", {})
+                content = (msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
+
             if not content:
                 raise RuntimeError("LLM returned an empty text message.")
 
