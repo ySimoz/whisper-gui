@@ -152,7 +152,7 @@ class SettingsPageWidget(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
             }}
-            #sec1_card QCheckBox, #sec1_card QLabel {{
+            #sec1_card QCheckBox, #sec1_card QLabel, #sec1_card #settings_panel {{
                 background-color: transparent;
             }}
         """)
@@ -170,7 +170,7 @@ class SettingsPageWidget(QWidget):
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 8px;
             }}
-            #sec2_card QCheckBox, #sec2_card QLabel {{
+            #sec2_card QCheckBox, #sec2_card QLabel, #sec2_card #llm_panel, #sec2_card #llm_controls_container {{
                 background-color: transparent;
             }}
         """)

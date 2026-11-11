@@ -93,6 +93,8 @@ class SettingsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("settings_panel")
+        self.setStyleSheet("#settings_panel { background-color: transparent; }")
         self._custom_output_dir: Path | None = None
         self._build_ui()
         self._update_disk_status()

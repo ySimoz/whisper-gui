@@ -85,6 +85,8 @@ class LLMPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setObjectName("llm_panel")
+        self.setStyleSheet("#llm_panel { background-color: transparent; }")
         self._custom_instruction_path: Path | None = None
         self._custom_instruction_text: str | None = None
 
@@ -108,6 +110,8 @@ class LLMPanel(QWidget):
 
         # Controls container
         self.controls_container = QWidget()
+        self.controls_container.setObjectName("llm_controls_container")
+        self.controls_container.setStyleSheet("#llm_controls_container { background-color: transparent; }")
         ctrl_layout = QVBoxLayout(self.controls_container)
         ctrl_layout.setContentsMargins(0, 0, 0, 0)
         ctrl_layout.setSpacing(10)
