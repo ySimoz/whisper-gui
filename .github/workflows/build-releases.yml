@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11"]
 
     steps:
@@ -135,9 +135,46 @@ jobs:
           name: WhisperGUI-macos
           path: dist/WhisperGUI-macos.zip
 
+  build-windows:
+    name: Build Windows Executable
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install Dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build Standalone Bundle
+        run: |
+          python scripts/bundle_app.py
+
+      - name: Archive Windows Package
+        shell: bash
+        run: |
+          cd dist
+          7z a -tzip WhisperGUI-windows-x64.zip WhisperGUI/
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperGUI-windows-x64
+          path: dist/WhisperGUI-windows-x64.zip
+
   publish-release:
     name: Publish GitHub Release
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -151,6 +188,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: WhisperGUI-macos
+          path: release-assets/
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: WhisperGUI-windows-x64
           path: release-assets/
 
       - name: Determine Release Tag
@@ -172,6 +215,7 @@ jobs:
           files: |
             release-assets/WhisperGUI-linux-x86_64.tar.gz
             release-assets/WhisperGUI-macos.zip
+            release-assets/WhisperGUI-windows-x64.zip
           body: |
             ## Whisper GUI Desktop Application
 
@@ -179,15 +223,17 @@ jobs:
 
             | Operating System | Download File | How to Run |
             |---|---|---|
-            | 🐧 **Linux (x86_64)** | [`WhisperGUI-linux-x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-linux-x86_64.tar.gz) | Extract with `tar -xzf WhisperGUI-linux-x86_64.tar.gz` and run `./WhisperGUI/WhisperGUI` |
             | 🍏 **macOS (Apple Silicon & Intel)** | [`WhisperGUI-macos.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-macos.zip) | Unzip to get `WhisperGUI.app`, double-click or drag into `/Applications` |
+            | 🪟 **Windows (x64)** | [`WhisperGUI-windows-x64.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-windows-x64.zip) | Extract and run `WhisperGUI\WhisperGUI.exe` |
+            | 🐧 **Linux (x86_64)** | [`WhisperGUI-linux-x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-linux-x86_64.tar.gz) | Extract and run `./WhisperGUI/WhisperGUI` |
 
             ---
 
             ### ✨ Highlights
-            - **Audio Trimming**: Frame-accurate custom range selection with FFmpeg.
-            - **Faster-Whisper**: High-accuracy `large-v3-turbo` model with live RAM monitor and Unload button.
-            - **LLM Text Polish (Optional)**: Automatically polishes disfluencies and formatting using DeepSeek V4.1 Flash (`deepseek-flash`), OpenAI, or Groq.
-            - **Microsoft Word Export**: Generates clean `.docx` files with metadata headers.
+            - **Local-First Audio Transcription**: High-accuracy offline transcription via faster-whisper (`large-v3-turbo` by default).
+            - **Lateral Tracks Drawer**: Slide-out multi-track queue with live status pills and one-click track activation.
+            - **Audio Length Trimming**: Frame-accurate FFmpeg range extraction without modifying original files.
+            - **Optional Speech Polishing**: Disfluency removal and formatting with custom instructions.
+            - **Microsoft Word (.docx) Export**: Clean document creation with metadata headers and timestamps.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

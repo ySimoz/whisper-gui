@@ -1,111 +1,159 @@
-# Whisper GUI
+<p align="center">
+  <img src="assets/icon.png" width="96" height="96" alt="Whisper GUI Logo" />
+</p>
 
-A fast, modern desktop application built with **Python**, **Qt (PySide6)**, **FFmpeg**, **faster-whisper**, and optional **LLM Speech Polishing (DeepSeek V4.1 Flash, OpenAI, Groq)**. It automates audio transcription, trims and slices audio to your desired range, refines speech disfluencies, and exports formatted Microsoft Word (`.docx`) documents.
+<h1 align="center">Whisper GUI</h1>
 
-Runs natively on **Linux**, **macOS** (Apple Silicon M1-M4 & Intel), and **Windows**.
+<p align="center">
+  <strong>Fast, private, local audio transcription with multi-track queue, audio trimming, and Microsoft Word export.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue?style=flat-square" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-green?style=flat-square" alt="Python Version" />
+  <img src="https://img.shields.io/badge/Engine-faster--whisper-orange?style=flat-square" alt="Engine" />
+  <img src="https://img.shields.io/badge/UI-PySide6%20(Qt%206)-purple?style=flat-square" alt="UI" />
+  <img src="https://img.shields.io/badge/Tests-47%20Passing-brightgreen?style=flat-square" alt="Tests" />
+</p>
+
+---
+
+## Overview
+
+**Whisper GUI** is a desktop application designed to transcribe lectures, meetings, podcasts, and interviews directly on your machine. All speech recognition executes 100% offline using `faster-whisper` (CTranslate2)—audio files never leave your computer.
+
+---
+
+## Workflow Preview
+
+### 1. Workspace & Multi-Track Lateral Drawer
+The slide-out drawer keeps your audio queue organized with live progress pills, one-click track activation, and batch processing:
+
+![Workspace with Lateral Drawer](assets/screenshots/workspace.png)
+
+---
+
+### 2. Audio Trimming
+Frame-accurate range selection with Start/End markers to transcribe only the sections you need:
+
+<p align="center">
+  <img src="assets/screenshots/trim_dialog.png" width="600" alt="Audio Trimming Dialog" />
+</p>
+
+---
+
+### 3. Dedicated Settings
+Sequential, uncompressed configuration for Whisper models, inference hardware, CPU thread allocation, and optional speech polishing:
+
+![Dedicated Settings Page](assets/screenshots/settings.png)
 
 ---
 
 ## Features
 
-- **Queue & Audio Import**:
-  - Add single audio files or entire folders.
-  - Full **drag-and-drop** support.
-  - Supports MP3, WAV, M4A, AAC, FLAC, OGG, OPUS, WMA, MP4, MKV, WEBM, and MOV.
-- **Audio Length Trimming (FFmpeg)**:
-  - Transcribe full tracks or select custom Start and End times (`HH:MM:SS`) with a responsive slider.
-  - Frame-accurate audio extraction and conversion to 16kHz mono WAV for Whisper inference.
-- **Faster-Whisper Inference & RAM Management**:
-  - Uses `faster-whisper` with `large-v3-turbo` by default (highest accuracy and speed).
-  - Also supports `large-v3`, `medium`, `small`, `base`, and `tiny`.
-  - First-time automatic download from HuggingFace, followed by offline disk caching.
-  - Live RAM monitor and instant **Unload Model** button to free system memory.
-- **LLM Speech Polishing (Optional)**:
-  - Automatically cleans transcription disfluencies (pauses, "umms", "uhs", repetitions, grammar slips) using **DeepSeek V4.1 Flash** (`deepseek-flash`), OpenAI (`gpt-4o-mini`), Groq (`llama-3.3-70b-versatile`), or any custom OpenAI-compatible endpoint.
-  - Import your own `.md` instruction file or edit prompts live in the UI.
-  - Preserves raw Whisper segments in real time while offering a dual view (Raw vs Polished).
-- **Microsoft Word (.docx) Export**:
-  - Outputs styled `.docx` files with metadata headers, timestamps, and polished text.
-  - One-click buttons to **Open Document** in your default office suite or **Open Folder** in file manager / Finder.
+- **100% Offline & Private**: Speech recognition runs entirely on your local hardware (Apple Silicon NEON, Intel AVX2, or NVIDIA CUDA). Audio never leaves your device.
+- **Lateral Tracks Drawer**: Slide-out sidebar to manage multiple audio files, check per-track statuses, and trigger one-click batch transcription.
+- **Audio Trimming (FFmpeg)**: Set precise start and end timestamps (`HH:MM:SS`) to transcribe specific excerpts without re-encoding or modifying the original media.
+- **Microsoft Word (.docx) Export**: Automatically creates formatted Word documents with timestamps, metadata headers, and styled paragraph structure.
+- **RAM-Conscious Model Management**: Pre-configured with `large-v3-turbo` for optimal speed and accuracy, with live memory indicators and a 1-click **Unload Model** button to free RAM immediately.
+- **Speech Polishing (Optional)**: Optionally cleans verbal fillers ("umms", "uhs", unintentional repetitions) into readable prose using your own custom prompt instructions.
+- **Broad Format Support**: Transcribes `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, `.wma`, `.mp4`, `.mkv`, `.webm`, and `.mov`.
 
 ---
 
-## Automated 1-Click Launchers
+## 1-Click Launchers
 
-To run Whisper GUI on another computer with automated environment setup:
+Run Whisper GUI on any machine with automated virtualenv setup and dependency installation:
 
-### On Linux
-```bash
-git clone https://github.com/ySimoz/whisper-gui.git
-cd whisper-gui
-./run_linux.sh
-```
-*`run_linux.sh` automatically checks for `python3` and `ffmpeg`, creates `.venv`, installs dependencies, and launches the application.*
-
-### On macOS
+### macOS (Apple Silicon & Intel)
 ```bash
 git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
 ./run_macos.sh
 ```
-*`run_macos.sh` automatically configures Homebrew paths (`/opt/homebrew/bin` on Apple Silicon or `/usr/local/bin` on Intel), sets up `.venv`, and launches the application.*
+
+### Windows
+```cmd
+git clone https://github.com/ySimoz/whisper-gui.git
+cd whisper-gui
+run_windows.bat
+```
+
+### Linux (Ubuntu / Debian / Fedora)
+```bash
+git clone https://github.com/ySimoz/whisper-gui.git
+cd whisper-gui
+./run_linux.sh
+```
 
 ---
 
-## Manual Setup & Development
+## Architecture & Technical Stack
 
-If you prefer using standard Python or `uv`:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PySide6 (Qt 6) UI                        │
+│  MainWindow  •  TracksDrawer  •  SettingsPage  •  TrimView  │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Signals / Slots
+┌──────────────────────────────▼──────────────────────────────┐
+│             Background Worker (QThread Pipeline)            │
+│  - Progress tracking  •  Cancellation token  •  Process IPC │
+└──────────────┬──────────────────────────────┬───────────────┘
+               │                              │
+┌──────────────▼──────────────┐┌──────────────▼───────────────┐
+│   FFmpeg Audio Subprocess   ││ faster-whisper (CTranslate2) │
+│ - 16kHz mono WAV extraction ││ - large-v3-turbo / int8      │
+│ - Frame-accurate slicing    ││ - Local offline inference    │
+└──────────────┬──────────────┘└──────────────┬───────────────┘
+               │                              │
+┌──────────────▼──────────────────────────────▼───────────────┐
+│                    Export & Post-Process                    │
+│  python-docx (.docx builder)  •  Optional LLM Speech Polish │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Frontend Architecture**: Written in **PySide6 (Qt 6)** with a single-window design. The navigation uses `QStackedWidget` to eliminate confusing modal dialogs.
+- **Inference Engine**: Powered by **faster-whisper** (CTranslate2 engine), achieving up to 4x faster transcription than vanilla Whisper with significantly lower memory usage.
+- **Audio Pipeline**: Non-blocking **FFmpeg** execution via isolated subprocess argument vectors (`shell=False`), preventing shell injection and supporting graceful tree termination (`taskkill` on Windows, `killpg` on POSIX).
+- **Process Isolation**: Slicing and transcription tasks execute in dedicated background threads to keep the user interface fluid and responsive at all times.
+- **Document Exporter**: Pure Python document generation via **python-docx**, outputting clean typography, metadata headers, and styled paragraph spacing.
+
+---
+
+## Development & Testing
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/ySimoz/whisper-gui.git
-cd whisper-gui
-
-# 2. Create and activate virtual environment
+# Set up development virtual environment
 python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# 3. Install dependencies
+# Install package with development dependencies
 pip install -e ".[dev]"
 
-# 4. Run tests (43 unit & integration tests)
+# Run full test suite (47 unit & integration tests)
 pytest -v
-
-# 5. Launch application
-python main.py
 ```
 
 ---
 
-## Shipping as a Standalone Desktop Application
+## Standalone Distribution
 
-To distribute Whisper GUI to other computers without requiring users to install Python:
+To compile a native executable that runs without requiring Python installed:
 
 ```bash
-# Activate your virtual environment and install PyInstaller
 pip install pyinstaller
-
-# Run the automated build script
 python scripts/bundle_app.py
 ```
 
-- **On Linux**: Produces a standalone distribution folder at `dist/WhisperGUI/` with executable `dist/WhisperGUI/WhisperGUI`.
-- **On macOS**: Produces a native double-clickable application bundle at `dist/WhisperGUI.app` that can be dragged into `/Applications`.
-- **On Windows**: Produces `dist/WhisperGUI/WhisperGUI.exe`.
+- **macOS**: Generates `dist/WhisperGUI.app`
+- **Windows**: Generates `dist/WhisperGUI/WhisperGUI.exe`
+- **Linux**: Generates `dist/WhisperGUI/WhisperGUI`
+
+Standalone binaries are also compiled automatically across all three operating systems via GitHub Actions on every release tag.
 
 ---
 
-## Automated GitHub Actions (Cloud Builds for macOS & Linux)
+## License
 
-The repository includes a GitHub Actions workflow in `.github/workflows/build-releases.yml`.
-
-- Every push and pull request runs automated test suites on both **Ubuntu** and **macOS**.
-- To build downloadable standalone releases for all platforms automatically:
-  ```bash
-  git tag v1.0.0
-  git push origin v1.0.0
-  ```
-  GitHub Actions will automatically compile:
-  - `WhisperGUI-linux-x86_64.tar.gz`
-  - `WhisperGUI-macos.zip` (containing `WhisperGUI.app`)
-  and attach them directly to your GitHub Releases page for direct download!
+MIT License. See [LICENSE](LICENSE) for details.

@@ -17,10 +17,18 @@ elif [ -d "/usr/local/bin" ]; then
     export PATH="/usr/local/bin:$PATH"
 fi
 
-# 2. Check Python
-if ! command -v python3 &>/dev/null; then
-    echo "Error: python3 is not installed on this system."
-    echo "Install Python 3.10+ via Homebrew: brew install python@3.11"
+# 2. Check Python (prefer Python 3.12/3.11 for ML & onnxruntime wheel compatibility)
+PYTHON_BIN=""
+for candidate in python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" &>/dev/null; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+    echo "Error: Python 3 is not installed on this system."
+    echo "Install Python 3.12 via Homebrew: brew install python@3.12"
     exit 1
 fi
 
@@ -36,7 +44,7 @@ fi
 VENV_DIR="$SCRIPT_DIR/.venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment at $VENV_DIR..."
-    python3 -m venv "$VENV_DIR"
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
     NEED_INSTALL=1
 fi
 

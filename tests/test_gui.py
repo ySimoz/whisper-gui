@@ -214,3 +214,83 @@ def test_main_window_init(qtbot):
     assert window.llm_panel is not None
     assert window.transcript_view is not None
     assert window.config_tabs.count() == 3
+
+    # In-window settings page navigation
+    assert window.page_stack.currentIndex() == 0
+    window.btn_open_settings.click()
+    assert window.page_stack.currentIndex() == 1
+
+    # Wheel scrolling over controls does not change selection
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication
+    combo = window.settings_panel.combo_threads
+    init_val = combo.value()
+    evt = QWheelEvent(QPoint(10, 10), QPoint(10, 10), QPoint(0, 0), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+    QApplication.sendEvent(combo, evt)
+    assert combo.value() == init_val
+
+    window.settings_page.btn_back.click()
+    assert window.page_stack.currentIndex() == 0
+    assert "Model:" in window.lbl_model_badge.text()
+
+
+def test_lateral_tracks_drawer(qtbot):
+    from pathlib import Path
+    from whisper_gui.models import AudioTrack, AudioInfo
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+
+    # Initial drawer state
+    assert not window.tracks_drawer.isVisible()
+    assert window.btn_toggle_drawer.text() == "☰ Tracks (0)"
+    assert window.btn_start.text() == "Transcribe Audio"
+
+    # Toggle drawer open
+    window.btn_toggle_drawer.click()
+    assert window.tracks_drawer.isVisible()
+    assert window.btn_toggle_drawer.isChecked()
+
+    # Close drawer via close button
+    close_btns = [b for b in window.tracks_drawer.findChildren(object) if hasattr(b, "text") and b.text() == "✕"]
+    assert len(close_btns) == 1
+    close_btns[0].click()
+    assert not window.tracks_drawer.isVisible()
+    assert not window.btn_toggle_drawer.isChecked()
+
+    # Add single track
+    p1 = Path("/tmp/meeting1.mp3")
+    info1 = AudioInfo(path=p1, duration=120.0, sample_rate=16000, channels=1, size_bytes=2048000, filename="meeting1.mp3", format_name="mp3")
+    track1 = AudioTrack(p1, info1)
+    window.track_list._tracks.append(track1)
+    window.track_list._track_map[track1.id] = track1
+    window.track_list._refresh_table()
+    window.track_list.track_count_changed.emit(1)
+
+    assert window.btn_toggle_drawer.text() == "☰ Tracks (1)"
+    assert window.btn_start.text() == "Transcribe Track"
+    assert window.lbl_active_name.text() == "meeting1.mp3"
+
+    # Add second track (multi-track queue)
+    p2 = Path("/tmp/interview.mp3")
+    info2 = AudioInfo(path=p2, duration=300.0, sample_rate=16000, channels=1, size_bytes=5120000, filename="interview.mp3", format_name="mp3")
+    track2 = AudioTrack(p2, info2)
+    window.track_list._tracks.append(track2)
+    window.track_list._track_map[track2.id] = track2
+    window.track_list._refresh_table()
+    window.track_list.track_count_changed.emit(2)
+
+    assert window.btn_toggle_drawer.text() == "☰ Tracks (2)"
+    assert window.btn_start.text() == "Transcribe All (2 Tracks)"
+    assert window.tracks_drawer.isVisible()
+    assert window.btn_active_drawer.isVisible()
+
+    # Select track 2 in drawer table
+    window.track_list.table.selectRow(1)
+    assert window.lbl_active_name.text() == "Track 2 of 2: interview.mp3"
+
+    # Select track 1 in drawer table
+    window.track_list.table.selectRow(0)
+    assert window.lbl_active_name.text() == "Track 1 of 2: meeting1.mp3"

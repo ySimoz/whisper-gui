@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -61,6 +62,29 @@ SUPPORTED_MODELS = [
 ]
 
 
+class ThreadComboBox(QComboBox):
+    """Popup selection dropdown for CPU threads with value() and setValue() compatibility."""
+
+    valueChanged = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setView(QListView())
+        self.currentIndexChanged.connect(self._emit_value_changed)
+
+    def _emit_value_changed(self) -> None:
+        self.valueChanged.emit(self.value())
+
+    def value(self) -> int:
+        data = self.currentData()
+        return int(data) if data is not None else 4
+
+    def setValue(self, val: int) -> None:
+        idx = self.findData(val)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+
+
 class SettingsPanel(QWidget):
     """Panel configuring model parameters, memory management, and document export."""
 
@@ -75,148 +99,159 @@ class SettingsPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(6)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        # 2-column compact grid for parameters
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(6)
+        # Section 1: Speech Recognition
+        sec_rec = QLabel("Speech Recognition")
+        sec_rec.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        layout.addWidget(sec_rec)
 
-        # Column 0: Model
-        grid.addWidget(QLabel("Whisper Model:"), 0, 0)
-        model_vbox = QVBoxLayout()
-        model_vbox.setSpacing(2)
+        lbl_model = QLabel("Whisper Model")
+        lbl_model.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_model)
+
         self.combo_model = QComboBox()
+        self.combo_model.setView(QListView())
         for label, model_id in SUPPORTED_MODELS:
             self.combo_model.addItem(label, model_id)
-        self.combo_model.setCurrentIndex(0)  # Default large-v3-turbo
-        model_vbox.addWidget(self.combo_model)
+        self.combo_model.setCurrentIndex(0)
+        self.combo_model.setFixedHeight(36)
+        layout.addWidget(self.combo_model)
 
         self.lbl_disk_status = QLabel("Downloaded locally")
-        self.lbl_disk_status.setStyleSheet(f"color: {COLOR_PRIMARY}; font-size: 10px; font-weight: bold;")
-        model_vbox.addWidget(self.lbl_disk_status)
-        grid.addLayout(model_vbox, 0, 1)
+        self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        layout.addWidget(self.lbl_disk_status)
 
-        # Column 1: Language
-        grid.addWidget(QLabel("Language:"), 0, 2)
+        layout.addSpacing(2)
+
+        lbl_lang = QLabel("Language")
+        lbl_lang.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_lang)
+
         self.combo_lang = QComboBox()
+        self.combo_lang.setView(QListView())
         for label, code in SUPPORTED_LANGUAGES:
             self.combo_lang.addItem(label, code)
-        self.combo_lang.setCurrentIndex(0)  # Default Auto-detect
-        grid.addWidget(self.combo_lang, 0, 3)
+        self.combo_lang.setCurrentIndex(0)
+        self.combo_lang.setFixedHeight(36)
+        layout.addWidget(self.combo_lang)
 
-        # Column 0: Device & Compute Type
-        grid.addWidget(QLabel("Device & Type:"), 1, 0)
-        dev_layout = QHBoxLayout()
-        dev_layout.setSpacing(4)
+        layout.addSpacing(2)
+
+        lbl_dev = QLabel("Inference Device & Compute Type")
+        lbl_dev.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_dev)
+
+        dev_row = QHBoxLayout()
+        dev_row.setSpacing(10)
         self.combo_device = QComboBox()
+        self.combo_device.setView(QListView())
         if sys.platform == "darwin":
             self.combo_device.addItem("CPU (Apple Silicon / Intel)", "cpu")
         else:
             self.combo_device.addItem("CPU", "cpu")
             self.combo_device.addItem("CUDA (GPU)", "cuda")
         self.combo_device.setCurrentIndex(0)
-        dev_layout.addWidget(self.combo_device)
+        self.combo_device.setFixedHeight(36)
+        dev_row.addWidget(self.combo_device, stretch=2)
 
         self.combo_compute = QComboBox()
+        self.combo_compute.setView(QListView())
         self.combo_compute.addItem("int8 (Fastest on CPU)", "int8")
         self.combo_compute.addItem("float16 (GPU)", "float16")
         self.combo_compute.addItem("float32", "float32")
         self.combo_compute.setCurrentIndex(0)
-        dev_layout.addWidget(self.combo_compute)
-        grid.addLayout(dev_layout, 1, 1)
+        self.combo_compute.setFixedHeight(36)
+        dev_row.addWidget(self.combo_compute, stretch=2)
+        layout.addLayout(dev_row)
 
-        # Column 1: CPU Threads
-        grid.addWidget(QLabel("CPU Threads:"), 1, 2)
+        layout.addSpacing(2)
+
+        lbl_threads = QLabel("CPU Threads")
+        lbl_threads.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_threads)
+
         max_cpu = os.cpu_count() or 6
         default_threads = min(6, max_cpu)
-        self.spin_threads = QSpinBox()
-        self.spin_threads.setRange(1, max_cpu)
+        self.spin_threads = ThreadComboBox()
+        for t in range(1, max_cpu + 1):
+            label = f"{t} thread" if t == 1 else f"{t} threads"
+            if t == default_threads:
+                label += " (Recommended)"
+            self.spin_threads.addItem(label, t)
         self.spin_threads.setValue(default_threads)
-        self.spin_threads.setToolTip("Number of CPU threads for inference (recommended 6 for physical cores)")
-        grid.addWidget(self.spin_threads, 1, 3)
+        self.spin_threads.setFixedHeight(36)
+        self.spin_threads.setToolTip("Number of CPU threads for inference")
+        self.combo_threads = self.spin_threads
+        layout.addWidget(self.spin_threads)
 
-        # Row 2: Checkboxes
-        self.chk_vad = QCheckBox("Voice Activity Detection (VAD - skip silence)")
+        layout.addSpacing(4)
+
+        self.chk_vad = QCheckBox("Voice Activity Detection (skip silence)")
         self.chk_vad.setChecked(True)
-        grid.addWidget(self.chk_vad, 2, 0, 1, 2)
+        layout.addWidget(self.chk_vad)
 
         self.chk_timestamps = QCheckBox("Include timestamps in Word document")
         self.chk_timestamps.setChecked(True)
-        grid.addWidget(self.chk_timestamps, 2, 2, 1, 2)
+        layout.addWidget(self.chk_timestamps)
 
-        layout.addLayout(grid)
+        layout.addSpacing(16)
 
-        # Memory & RAM Management Row
-        mem_frame = QFrame()
-        mem_frame.setFrameShape(QFrame.StyledPanel)
-        mem_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLOR_BG_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
-        mem_layout = QHBoxLayout(mem_frame)
-        mem_layout.setContentsMargins(8, 4, 8, 4)
-        mem_layout.setSpacing(10)
+        # Section 2: Storage & Output
+        sec_out = QLabel("Storage & Output")
+        sec_out.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        layout.addWidget(sec_out)
 
-        self.lbl_ram_status = QLabel("Model in Memory: None (0 MB)")
-        self.lbl_ram_status.setStyleSheet(f"font-size: 11px; color: {COLOR_TEXT_MUTED};")
-        mem_layout.addWidget(self.lbl_ram_status)
+        lbl_out = QLabel("Output Folder")
+        lbl_out.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_out)
 
-        self.btn_free_ram = QPushButton("Unload Model")
-        self.btn_free_ram.setToolTip("Removes the active model from memory and frees RAM")
-        self.btn_free_ram.setMaximumHeight(24)
-        self.btn_free_ram.setEnabled(False)
-        self.btn_free_ram.setStyleSheet(f"""
-            QPushButton {{
-                font-size: 11px;
-                padding: 2px 8px;
-                border: 1px solid {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY};
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY_TEXT};
-            }}
-            QPushButton:disabled {{
-                border: 1px solid #283142;
-                color: {COLOR_TEXT_HINT};
-            }}
-        """)
-        mem_layout.addWidget(self.btn_free_ram)
-
-        self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
-        self.chk_auto_unload.setStyleSheet(f"font-size: 11px; color: {COLOR_TEXT_MUTED};")
-        self.chk_auto_unload.setToolTip("Automatically frees model from RAM when all jobs finish")
-        mem_layout.addWidget(self.chk_auto_unload)
-        mem_layout.addStretch()
-
-        layout.addWidget(mem_frame)
-
-        # Custom Output Directory Row
-        out_layout = QHBoxLayout()
-        out_layout.setSpacing(6)
-        out_lbl = QLabel("Output Folder:")
-        out_lbl.setStyleSheet("font-size: 11px;")
-        out_layout.addWidget(out_lbl)
-
+        out_row = QHBoxLayout()
+        out_row.setSpacing(8)
         self.txt_output_dir = QLineEdit()
-        self.txt_output_dir.setPlaceholderText("Default: Same directory as audio file")
+        self.txt_output_dir.setPlaceholderText("Default: Same folder as original audio")
         self.txt_output_dir.setReadOnly(True)
-        out_layout.addWidget(self.txt_output_dir, stretch=1)
+        self.txt_output_dir.setFixedHeight(36)
+        out_row.addWidget(self.txt_output_dir, stretch=1)
 
         self.btn_browse_dir = QPushButton("Browse...")
-        self.btn_browse_dir.setMaximumHeight(24)
-        out_layout.addWidget(self.btn_browse_dir)
+        self.btn_browse_dir.setFixedHeight(36)
+        out_row.addWidget(self.btn_browse_dir)
 
         self.btn_clear_dir = QPushButton("Reset")
-        self.btn_clear_dir.setMaximumHeight(24)
-        out_layout.addWidget(self.btn_clear_dir)
+        self.btn_clear_dir.setFixedHeight(36)
+        out_row.addWidget(self.btn_clear_dir)
+        layout.addLayout(out_row)
 
-        layout.addLayout(out_layout)
+        layout.addSpacing(16)
+
+        # Section 3: Memory & Performance
+        sec_mem = QLabel("System & Memory")
+        sec_mem.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        layout.addWidget(sec_mem)
+
+        lbl_ram = QLabel("Model Memory Usage")
+        lbl_ram.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        layout.addWidget(lbl_ram)
+
+        ram_row = QHBoxLayout()
+        ram_row.setSpacing(10)
+        self.lbl_ram_status = QLabel("Model in RAM: None (0 MB)")
+        self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+        ram_row.addWidget(self.lbl_ram_status, stretch=1)
+
+        self.btn_free_ram = QPushButton("Unload Model")
+        self.btn_free_ram.setFixedHeight(34)
+        self.btn_free_ram.setEnabled(False)
+        ram_row.addWidget(self.btn_free_ram)
+        layout.addLayout(ram_row)
+
+        self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
+        self.chk_auto_unload.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+        layout.addWidget(self.chk_auto_unload)
+
+        layout.addStretch()
 
         # Connect signals
         self.combo_model.currentIndexChanged.connect(self._on_model_selected)
@@ -242,10 +277,10 @@ class SettingsPanel(QWidget):
         est_mb = estimate_model_ram_mb(model_name)
         if is_downloaded:
             self.lbl_disk_status.setText(f"Downloaded on disk (Instant load, ~{est_mb}MB RAM)")
-            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_PRIMARY}; font-size: 10px; font-weight: bold;")
+            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         else:
             self.lbl_disk_status.setText(f"Not cached locally (~{est_mb}MB download)")
-            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_SECONDARY}; font-size: 10px; font-weight: bold;")
+            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
 
     def set_ram_status(self, is_loaded: bool, model_name: str | None = None) -> None:
         """Update the RAM display badge and enable/disable the Free RAM button."""

@@ -63,6 +63,7 @@ hiddenimports = [
     'whisper_gui.ui.main_window',
     'whisper_gui.ui.range_selector',
     'whisper_gui.ui.settings_panel',
+    'whisper_gui.ui.settings_page',
     'whisper_gui.ui.llm_panel',
     'whisper_gui.ui.track_list_widget',
     'whisper_gui.ui.transcript_view',

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -60,14 +61,6 @@ class InstructionEditorDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(14, 14, 14, 14)
 
-        hint_lbl = QLabel(
-            "Instructions guide the LLM on how to reformat sentences, eliminate pauses, "
-            "and clean up verbal fillers. Markdown format is supported."
-        )
-        hint_lbl.setWordWrap(True)
-        hint_lbl.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        layout.addWidget(hint_lbl)
-
         self.editor = QPlainTextEdit()
         self.editor.setPlainText(current_text)
         font = QFont("Monospace")
@@ -102,136 +95,125 @@ class LLMPanel(QWidget):
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 8, 10, 8)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(14)
 
-        # 1. Top Options Bar: Checkboxes
-        top_bar = QFrame()
-        top_bar.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLOR_BG_INPUT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-            }}
-        """)
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(10, 6, 10, 6)
-        top_layout.setSpacing(16)
+        sec_hdr = QLabel("AI Speech Polishing")
+        sec_hdr.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        main_layout.addWidget(sec_hdr)
 
-        self.chk_enable = QCheckBox("Enable Text Polishing (LLM)")
-        font_chk = QFont()
-        font_chk.setBold(True)
-        font_chk.setPointSize(11)
-        self.chk_enable.setFont(font_chk)
-        self.chk_enable.setStyleSheet(f"color: {COLOR_SECONDARY}; font-weight: bold;")
+        self.chk_enable = QCheckBox("Enable AI speech polishing")
+        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700; font-size: 13px;")
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
-        top_layout.addWidget(self.chk_enable)
+        main_layout.addWidget(self.chk_enable)
 
-        self.chk_raw_appendix = QCheckBox("Include raw transcript in Word document")
-        self.chk_raw_appendix.setChecked(True)
-        self.chk_raw_appendix.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
-        top_layout.addWidget(self.chk_raw_appendix)
-
-        top_layout.addStretch()
-
-        self.lbl_workflow_status = QLabel("")
-        top_layout.addWidget(self.lbl_workflow_status)
-        main_layout.addWidget(top_bar)
-
-        # 2. Compact Settings Grid (ALWAYS interactive so users can configure & test anytime)
+        # Controls container
         self.controls_container = QWidget()
-        grid = QGridLayout(self.controls_container)
-        grid.setContentsMargins(4, 2, 4, 2)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(6)
+        ctrl_layout = QVBoxLayout(self.controls_container)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
+        ctrl_layout.setSpacing(10)
 
-        # Row 0: Provider & Model & Base URL
-        grid.addWidget(QLabel("Provider:"), 0, 0)
+        # Provider
+        lbl_prov = QLabel("AI Provider")
+        lbl_prov.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        ctrl_layout.addWidget(lbl_prov)
+
         self.combo_provider = QComboBox()
+        self.combo_provider.setView(QListView())
         self.combo_provider.addItems(["DeepSeek", "OpenAI", "Groq", "Custom"])
+        self.combo_provider.setFixedHeight(36)
         self.combo_provider.currentTextChanged.connect(self._on_provider_changed)
-        grid.addWidget(self.combo_provider, 0, 1)
+        ctrl_layout.addWidget(self.combo_provider)
 
-        grid.addWidget(QLabel("Model:"), 0, 2)
+        # Model Name
+        lbl_mod = QLabel("Model Name")
+        lbl_mod.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        ctrl_layout.addWidget(lbl_mod)
+
         self.combo_model = QComboBox()
+        self.combo_model.setView(QListView())
         self.combo_model.setEditable(True)
+        self.combo_model.setFixedHeight(36)
         self.combo_model.currentTextChanged.connect(self._on_setting_changed)
-        grid.addWidget(self.combo_model, 0, 3)
+        ctrl_layout.addWidget(self.combo_model)
 
-        grid.addWidget(QLabel("Base URL:"), 0, 4)
+        # Base URL
+        lbl_url = QLabel("API Base URL")
+        lbl_url.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        ctrl_layout.addWidget(lbl_url)
+
         self.txt_base_url = QLineEdit()
+        self.txt_base_url.setFixedHeight(36)
         self.txt_base_url.setPlaceholderText("https://api.deepseek.com/v1")
         self.txt_base_url.textChanged.connect(self._on_setting_changed)
-        grid.addWidget(self.txt_base_url, 0, 5)
+        ctrl_layout.addWidget(self.txt_base_url)
 
-        # Row 1: API Key & Connection Test
-        grid.addWidget(QLabel("API Key:"), 1, 0)
+        # API Key
+        lbl_key = QLabel("API Key")
+        lbl_key.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        ctrl_layout.addWidget(lbl_key)
 
         key_box = QHBoxLayout()
-        key_box.setSpacing(6)
+        key_box.setSpacing(8)
         self.txt_api_key = QLineEdit()
+        self.txt_api_key.setFixedHeight(36)
         self.txt_api_key.setEchoMode(QLineEdit.Password)
-        self.txt_api_key.setPlaceholderText("API key (stored locally on your device)")
+        self.txt_api_key.setPlaceholderText("Paste your API key here")
         self.txt_api_key.textChanged.connect(self._on_setting_changed)
-        key_box.addWidget(self.txt_api_key)
+        key_box.addWidget(self.txt_api_key, stretch=1)
 
         self.btn_toggle_key = QPushButton("Show")
-        self.btn_toggle_key.setFixedWidth(60)
+        self.btn_toggle_key.setFixedHeight(36)
+        self.btn_toggle_key.setFixedWidth(64)
         self.btn_toggle_key.clicked.connect(self._toggle_key_visibility)
         key_box.addWidget(self.btn_toggle_key)
 
         self.btn_test_conn = QPushButton("Test Connection")
-        self.btn_test_conn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #2D1A28;
-                border: 1px solid {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY};
-                font-weight: bold;
-                padding: 4px 12px;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY_TEXT};
-            }}
-        """)
+        self.btn_test_conn.setFixedHeight(36)
         self.btn_test_conn.clicked.connect(self._test_connection)
         key_box.addWidget(self.btn_test_conn)
+        ctrl_layout.addLayout(key_box)
 
-        grid.addLayout(key_box, 1, 1, 1, 5)
-
-        # Row 2: Prompt Instructions & Import / Edit
-        grid.addWidget(QLabel("Instructions:"), 2, 0)
-
-        prompt_box = QHBoxLayout()
-        prompt_box.setSpacing(6)
-
-        self.lbl_active_prompt = QLabel("Active: Default (Speech Polisher)")
-        self.lbl_active_prompt.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 11px;")
-        prompt_box.addWidget(self.lbl_active_prompt)
-
-        prompt_box.addStretch()
-
-        self.btn_import_md = QPushButton("Import File...")
-        self.btn_import_md.clicked.connect(self._import_md_file)
-        prompt_box.addWidget(self.btn_import_md)
-
-        self.btn_view_edit = QPushButton("View / Edit")
-        self.btn_view_edit.clicked.connect(self._view_edit_instructions)
-        prompt_box.addWidget(self.btn_view_edit)
-
-        self.btn_reset_default = QPushButton("Reset to Default")
-        self.btn_reset_default.clicked.connect(self._reset_instructions)
-        prompt_box.addWidget(self.btn_reset_default)
-
-        grid.addLayout(prompt_box, 2, 1, 1, 5)
-
-        # Row 3: Status / Feedback message
         self.lbl_conn_status = QLabel("")
         self.lbl_conn_status.setWordWrap(True)
-        self.lbl_conn_status.setStyleSheet("font-size: 11px;")
-        grid.addWidget(self.lbl_conn_status, 3, 1, 1, 5)
+        self.lbl_conn_status.setStyleSheet("font-size: 12px;")
+        ctrl_layout.addWidget(self.lbl_conn_status)
+
+        # Prompt Instructions
+        lbl_prompt = QLabel("Custom Instructions Prompt")
+        lbl_prompt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        ctrl_layout.addWidget(lbl_prompt)
+
+        self.lbl_active_prompt = QLabel("Active: Default (Speech Polisher)")
+        self.lbl_active_prompt.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        ctrl_layout.addWidget(self.lbl_active_prompt)
+
+        prompt_btn_row = QHBoxLayout()
+        prompt_btn_row.setSpacing(8)
+
+        self.btn_view_edit = QPushButton("View / Edit Prompt")
+        self.btn_view_edit.setFixedHeight(34)
+        self.btn_view_edit.clicked.connect(self._view_edit_instructions)
+        prompt_btn_row.addWidget(self.btn_view_edit)
+
+        self.btn_import_md = QPushButton("Import .md File")
+        self.btn_import_md.setFixedHeight(34)
+        self.btn_import_md.clicked.connect(self._import_md_file)
+        prompt_btn_row.addWidget(self.btn_import_md)
+
+        self.btn_reset_default = QPushButton("Reset to Default")
+        self.btn_reset_default.setFixedHeight(34)
+        self.btn_reset_default.clicked.connect(self._reset_instructions)
+        prompt_btn_row.addWidget(self.btn_reset_default)
+
+        prompt_btn_row.addStretch()
+        ctrl_layout.addLayout(prompt_btn_row)
+
+        self.chk_raw_appendix = QCheckBox("Include raw transcript in Word document")
+        self.chk_raw_appendix.setChecked(True)
+        self.chk_raw_appendix.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
+        ctrl_layout.addWidget(self.chk_raw_appendix)
 
         main_layout.addWidget(self.controls_container)
         main_layout.addStretch()

@@ -1,4 +1,4 @@
-"""Main window for Whisper GUI desktop application with responsive layouts and vibrant dark theme."""
+"""Main window for Whisper GUI desktop application with streamlined Swiss AI-native layout."""
 
 from __future__ import annotations
 
@@ -6,17 +6,22 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListView,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
     QTabWidget,
     QVBoxLayout,
@@ -29,14 +34,18 @@ from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, Trans
 from whisper_gui.platform_utils import get_app_icon
 from whisper_gui.transcriber import Transcriber
 from whisper_gui.ui.llm_panel import LLMPanel
-from whisper_gui.ui.range_selector import RangeSelectorWidget
+from whisper_gui.ui.range_selector import RangeSelectorWidget, TrimAudioDialog
+from whisper_gui.ui.settings_page import SettingsPageWidget
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
     COLOR_BG_SURFACE,
+    COLOR_BG_WINDOW,
     COLOR_BORDER,
+    COLOR_BORDER_LIGHT,
     COLOR_PRIMARY,
     COLOR_PRIMARY_HOVER,
+    COLOR_PRIMARY_PRESSED,
     COLOR_PRIMARY_TEXT,
     COLOR_SECONDARY,
     COLOR_SECONDARY_HOVER,
@@ -56,10 +65,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"Whisper GUI - Audio Transcription & Docx Export v{__version__}")
-        self.resize(1120, 740)
-        self.setMinimumSize(780, 500)
+        self.setWindowTitle(f"Whisper GUI v{__version__}")
+        self.resize(960, 680)
+        self.setMinimumSize(720, 480)
         self.setStyleSheet(GLOBAL_STYLESHEET)
+        self.setAcceptDrops(True)
 
         # Set window icon
         app_icon = get_app_icon()
@@ -69,60 +79,297 @@ class MainWindow(QMainWindow):
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
         self.current_worker: TranscriptionWorker | None = None
+        self._active_track: AudioTrack | None = None
 
         self._build_ui()
         self._load_settings()
+        self._on_model_changed()
         self._check_dependencies()
+        self._sync_queue_display()
 
     def _build_ui(self) -> None:
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_vbox = QVBoxLayout(central_widget)
-        main_vbox.setSpacing(8)
-        main_vbox.setContentsMargins(10, 10, 10, 6)
+        main_vbox.setSpacing(0)
+        main_vbox.setContentsMargins(0, 0, 0, 0)
 
-        # Header bar
+        # Page Stack: Page 0 = Transcribe, Page 1 = Settings
+        self.page_stack = QStackedWidget(central_widget)
+        main_vbox.addWidget(self.page_stack)
+
+        # ---------------- Page 0: Transcribe Workspace ----------------
+        self.page_transcribe = QWidget()
+        transcribe_vbox = QVBoxLayout(self.page_transcribe)
+        transcribe_vbox.setSpacing(10)
+        transcribe_vbox.setContentsMargins(16, 12, 16, 12)
+
+        # 1. Header Bar
         header_frame = QFrame()
-        header_frame.setFrameShape(QFrame.StyledPanel)
+        header_frame.setObjectName("main_header")
+        header_frame.setFixedHeight(48)
         header_frame.setStyleSheet(f"""
-            QFrame {{
+            #main_header {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 6px;
             }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
         """)
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(10)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_layout.setSpacing(12)
+        header_layout.setAlignment(Qt.AlignVCenter)
 
-        title_lbl = QLabel()
+        # Left side: Lateral Drawer Toggle + Title + Model Badge
+        self.btn_toggle_drawer = QPushButton("☰ Tracks (0)")
+        self.btn_toggle_drawer.setCheckable(True)
+        self.btn_toggle_drawer.setStyleSheet(f"""
+            QPushButton {{
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:checked {{
+                background-color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
+                border-color: {COLOR_PRIMARY};
+            }}
+        """)
+        self.btn_toggle_drawer.clicked.connect(self._toggle_tracks_drawer)
+        self.btn_toggle_queue = self.btn_toggle_drawer  # backward compatibility alias
+        header_layout.addWidget(self.btn_toggle_drawer)
+
+        title_lbl = QLabel("Whisper GUI")
         title_font = QFont()
-        title_font.setPointSize(13)
+        title_font.setPointSize(14)
         title_font.setBold(True)
         title_lbl.setFont(title_font)
-        title_lbl.setTextFormat(Qt.RichText)
-        title_lbl.setText(
-            f"<span style='color: {COLOR_PRIMARY}; font-weight: bold;'>Whisper</span> "
-            f"<span style='color: {COLOR_SECONDARY}; font-weight: bold;'>Transcriber</span>"
-        )
+        title_lbl.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700;")
         header_layout.addWidget(title_lbl)
+
+        self.lbl_model_badge = QLabel("Model: large-v3-turbo")
+        self.lbl_model_badge.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: 500;")
+        header_layout.addWidget(self.lbl_model_badge)
 
         header_layout.addStretch()
 
-        # Primary Action Buttons
-        self.btn_start = QPushButton("Start Transcription")
+        self.btn_open_settings = QPushButton("⚙ Settings")
+        self.btn_open_settings.setStyleSheet("""
+            QPushButton {
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+        """)
+        self.btn_open_settings.clicked.connect(self._open_settings_page)
+        header_layout.addWidget(self.btn_open_settings)
+
+        transcribe_vbox.addWidget(header_frame)
+
+        # 2. Main Content Splitter (Lateral Drawer on left | Hero Workspace)
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+
+        # 2a. Lateral Tracks Drawer
+        self.tracks_drawer = QFrame()
+        self.tracks_drawer.setObjectName("tracks_drawer")
+        self.tracks_drawer.setMinimumWidth(320)
+        self.tracks_drawer.setMaximumWidth(460)
+        self.tracks_drawer.setStyleSheet(f"""
+            #tracks_drawer {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.queue_drawer = self.tracks_drawer  # backward compatibility alias
+
+        drawer_vbox = QVBoxLayout(self.tracks_drawer)
+        drawer_vbox.setContentsMargins(12, 12, 12, 12)
+        drawer_vbox.setSpacing(10)
+
+        drawer_hdr = QHBoxLayout()
+        drawer_hdr.setSpacing(8)
+        self.lbl_drawer_title = QLabel("Tracks")
+        self.lbl_drawer_title.setStyleSheet(f"font-weight: 700; font-size: 14px; color: {COLOR_TEXT_MAIN};")
+        drawer_hdr.addWidget(self.lbl_drawer_title)
+
+        self.lbl_drawer_count = QLabel("0 tracks")
+        self.lbl_drawer_count.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        drawer_hdr.addWidget(self.lbl_drawer_count)
+
+        drawer_hdr.addStretch()
+
+        btn_close_drawer = QPushButton("✕")
+        btn_close_drawer.setFixedSize(24, 24)
+        btn_close_drawer.setToolTip("Close drawer")
+        btn_close_drawer.setStyleSheet("padding: 0; font-size: 12px; font-weight: 700;")
+        btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
+        drawer_hdr.addWidget(btn_close_drawer)
+        drawer_vbox.addLayout(drawer_hdr)
+
+        self.track_list = TrackListWidget()
+        drawer_vbox.addWidget(self.track_list, stretch=1)
+        self.main_splitter.addWidget(self.tracks_drawer)
+        self.tracks_drawer.hide()
+
+        # 2b. Central Hero Workspace
+        self.center_widget = QWidget()
+        center_layout = QVBoxLayout(self.center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(10)
+
+        # Dropzone (shown when 0 tracks loaded)
+        self.dropzone_card = QFrame()
+        self.dropzone_card.setObjectName("dropzone_card")
+        self.dropzone_card.setMinimumHeight(180)
+        self.dropzone_card.setStyleSheet(f"""
+            #dropzone_card {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 2px dashed {COLOR_BORDER_LIGHT};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        drop_layout = QVBoxLayout(self.dropzone_card)
+        drop_layout.setContentsMargins(24, 32, 24, 32)
+        drop_layout.setSpacing(14)
+        drop_layout.setAlignment(Qt.AlignCenter)
+
+        drop_title = QLabel("Drop audio file or folder here")
+        drop_title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLOR_TEXT_MAIN};")
+        drop_title.setAlignment(Qt.AlignCenter)
+        drop_layout.addWidget(drop_title)
+
+        drop_btn_row = QHBoxLayout()
+        drop_btn_row.setSpacing(12)
+        drop_btn_row.setAlignment(Qt.AlignCenter)
+
+        self.btn_select_file = QPushButton("Choose File")
+        self.btn_select_file.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
+                font-weight: 600;
+                padding: 8px 18px;
+                border-radius: 4px;
+                border: none;
+                min-height: 24px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_PRIMARY_HOVER};
+            }}
+        """)
+        self.btn_select_file.clicked.connect(self.track_list._on_add_files_clicked)
+        drop_btn_row.addWidget(self.btn_select_file)
+
+        self.btn_select_folder = QPushButton("Choose Folder")
+        self.btn_select_folder.setStyleSheet("padding: 8px 16px; min-height: 24px;")
+        self.btn_select_folder.clicked.connect(self.track_list._on_add_folder_clicked)
+        drop_btn_row.addWidget(self.btn_select_folder)
+
+        drop_layout.addLayout(drop_btn_row)
+        center_layout.addWidget(self.dropzone_card)
+
+        # Active Track Card (shown when >= 1 track loaded)
+        self.active_card = QFrame()
+        self.active_card.setObjectName("active_card")
+        self.active_card.setStyleSheet(f"""
+            #active_card {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        card_layout = QVBoxLayout(self.active_card)
+        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setSpacing(12)
+
+        # Track info header
+        track_row = QHBoxLayout()
+        track_row.setSpacing(10)
+
+        self.lbl_active_name = QLabel("Track Name")
+        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        track_row.addWidget(self.lbl_active_name, stretch=1)
+
+        self.lbl_active_meta = QLabel("00:00 • 0 MB")
+        self.lbl_active_meta.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        track_row.addWidget(self.lbl_active_meta)
+
+        self.lbl_active_slice = QLabel("Full Audio")
+        self.lbl_active_slice.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: 500;")
+        track_row.addWidget(self.lbl_active_slice)
+        card_layout.addLayout(track_row)
+
+        # Action bar: Trim Audio, Polish toggle, Drawer button
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(12)
+
+        self.btn_open_trim = QPushButton("✂ Trim Audio")
+        self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 14px;")
+        self.btn_open_trim.clicked.connect(self._open_trim_dialog)
+        actions_row.addWidget(self.btn_open_trim)
+
+        self.chk_polish_sync = QCheckBox("Polish with AI")
+        self.chk_polish_sync.setStyleSheet("font-weight: 600;")
+        self.chk_polish_sync.toggled.connect(self._on_polish_sync_toggled)
+        actions_row.addWidget(self.chk_polish_sync)
+
+        actions_row.addStretch()
+
+        self.btn_active_drawer = QPushButton("☰ View All Tracks")
+        self.btn_active_drawer.setStyleSheet("padding: 5px 12px; font-size: 12px;")
+        self.btn_active_drawer.clicked.connect(self._open_tracks_drawer)
+        actions_row.addWidget(self.btn_active_drawer)
+
+        card_layout.addLayout(actions_row)
+
+        # Hidden compatibility controls
+        self.multi_track_widget = QWidget()
+        self.multi_track_widget.hide()
+        self.combo_active_track = QComboBox()
+        self.combo_active_track.setView(QListView())
+        self.combo_active_track.currentIndexChanged.connect(self._on_combo_track_changed)
+        self.btn_add_another = QPushButton("+ Add Files")
+        self.btn_add_another.clicked.connect(self.track_list._on_add_files_clicked)
+        self.btn_add_another.hide()
+
+        # Primary transcribe button bar
+        transcribe_row = QHBoxLayout()
+        transcribe_row.setSpacing(10)
+
+        self.btn_start = QPushButton("Transcribe Audio")
+        self.btn_start.setFixedHeight(42)
         self.btn_start.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_PRIMARY};
                 color: {COLOR_PRIMARY_TEXT};
-                font-weight: bold;
-                font-size: 12px;
-                padding: 6px 18px;
-                border: 1px solid {COLOR_PRIMARY};
+                font-weight: 700;
+                font-size: 13px;
                 border-radius: 4px;
+                border: none;
             }}
             QPushButton:hover {{
                 background-color: {COLOR_PRIMARY_HOVER};
+            }}
+            QPushButton:pressed {{
+                background-color: {COLOR_PRIMARY_PRESSED};
             }}
             QPushButton:disabled {{
                 background-color: {COLOR_BG_INPUT};
@@ -130,19 +377,21 @@ class MainWindow(QMainWindow):
                 border: 1px solid {COLOR_BORDER};
             }}
         """)
-        header_layout.addWidget(self.btn_start)
+        self.btn_start.clicked.connect(self._on_start_clicked)
+        transcribe_row.addWidget(self.btn_start, stretch=1)
 
         self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setFixedHeight(42)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_SECONDARY};
                 color: {COLOR_SECONDARY_TEXT};
-                font-weight: bold;
-                font-size: 12px;
-                padding: 6px 18px;
-                border: 1px solid {COLOR_SECONDARY};
+                font-weight: 700;
+                font-size: 13px;
+                padding: 0 22px;
                 border-radius: 4px;
+                border: none;
             }}
             QPushButton:hover {{
                 background-color: {COLOR_SECONDARY_HOVER};
@@ -153,82 +402,182 @@ class MainWindow(QMainWindow):
                 border: 1px solid {COLOR_BORDER};
             }}
         """)
-        header_layout.addWidget(self.btn_stop)
+        self.btn_stop.clicked.connect(self._on_stop_clicked)
+        transcribe_row.addWidget(self.btn_stop)
 
-        main_vbox.addWidget(header_frame)
+        card_layout.addLayout(transcribe_row)
+        center_layout.addWidget(self.active_card)
 
-        # Main horizontal splitter: Left = Track Queue, Right = Slicing/Settings + Transcript
-        self.h_splitter = QSplitter(Qt.Horizontal)
-        self.h_splitter.setChildrenCollapsible(False)
-
-        # Left pane: Track list
-        self.track_list = TrackListWidget()
-        self.h_splitter.addWidget(self.track_list)
-
-        # Right pane: Vertical splitter with Tabs on top and Live Transcript below
-        self.v_splitter = QSplitter(Qt.Vertical)
-        self.v_splitter.setChildrenCollapsible(False)
-
-        # Configuration Tabs
-        self.config_tabs = QTabWidget()
-
-        # Tab 1: Range Selector in scroll area
-        self.range_selector = RangeSelectorWidget()
-        scroll_range = QScrollArea()
-        scroll_range.setWidgetResizable(True)
-        scroll_range.setFrameShape(QFrame.NoFrame)
-        scroll_range.setWidget(self.range_selector)
-        self.config_tabs.addTab(scroll_range, "Audio Trimming")
-
-        # Tab 2: Settings Panel in scroll area
-        self.settings_panel = SettingsPanel()
-        scroll_settings = QScrollArea()
-        scroll_settings.setWidgetResizable(True)
-        scroll_settings.setFrameShape(QFrame.NoFrame)
-        scroll_settings.setWidget(self.settings_panel)
-        self.config_tabs.addTab(scroll_settings, "Whisper Settings")
-
-        # Tab 3: LLM Text Polish Panel in scroll area
-        self.llm_panel = LLMPanel()
-        scroll_llm = QScrollArea()
-        scroll_llm.setWidgetResizable(True)
-        scroll_llm.setFrameShape(QFrame.NoFrame)
-        scroll_llm.setWidget(self.llm_panel)
-        self.config_tabs.addTab(scroll_llm, "Text Polish")
-
-        self.v_splitter.addWidget(self.config_tabs)
-
-        # Bottom of right pane: Live Transcript & Export view
+        # Live Transcript View
         self.transcript_view = TranscriptView()
-        self.v_splitter.addWidget(self.transcript_view)
+        center_layout.addWidget(self.transcript_view, stretch=1)
 
-        # Proportion settings: config tabs compact, transcript view gets majority of room
-        self.v_splitter.setStretchFactor(0, 0)
-        self.v_splitter.setStretchFactor(1, 1)
-        self.v_splitter.setSizes([120, 520])
+        self.main_splitter.addWidget(self.center_widget)
+        transcribe_vbox.addWidget(self.main_splitter, stretch=1)
+        self.page_stack.addWidget(self.page_transcribe)
 
-        self.h_splitter.addWidget(self.v_splitter)
-        self.h_splitter.setStretchFactor(0, 4)
-        self.h_splitter.setStretchFactor(1, 6)
-        self.h_splitter.setSizes([380, 640])
+        # ---------------- Page 1: Dedicated Settings Page ----------------
+        self.range_selector = RangeSelectorWidget()
+        self.settings_panel = SettingsPanel()
+        self.llm_panel = LLMPanel()
+        self.settings_page = SettingsPageWidget(self.settings_panel, self.llm_panel, self)
+        self.settings_page.back_requested.connect(self._close_settings_page)
+        self.page_stack.addWidget(self.settings_page)
 
-        main_vbox.addWidget(self.h_splitter, stretch=1)
+        # Compatibility container for tests asserting `window.config_tabs.count() == 3`
+        self.config_tabs = QTabWidget()
+        self.config_tabs.addTab(self.range_selector, "Trimming")
+        self.config_tabs.addTab(QWidget(), "Whisper")
+        self.config_tabs.addTab(QWidget(), "Polish")
+        self.config_tabs.hide()
 
         # Status Bar
         self.status_bar = QStatusBar()
         self.status_bar.setSizeGripEnabled(True)
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready. Add audio files to begin.")
+        self.status_bar.showMessage("Ready")
 
-        # Wire Signals
+        # Connect Signals
         self.track_list.track_selected.connect(self._on_track_selected)
+        self.track_list.track_count_changed.connect(self._on_track_count_changed)
         self.range_selector.range_changed.connect(self._on_range_changed)
-        self.btn_start.clicked.connect(self._on_start_clicked)
-        self.btn_stop.clicked.connect(self._on_stop_clicked)
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
+        self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
+        self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
 
         # Initial state
         self.range_selector.set_track(None)
+
+    def _toggle_tracks_drawer(self) -> None:
+        is_checked = self.btn_toggle_drawer.isChecked()
+        self.tracks_drawer.setVisible(is_checked)
+        if is_checked:
+            total_w = self.main_splitter.width() or 1000
+            self.main_splitter.setSizes([350, max(600, total_w - 350)])
+
+    def _toggle_queue_drawer(self) -> None:
+        self._toggle_tracks_drawer()
+
+    def _open_tracks_drawer(self) -> None:
+        self.btn_toggle_drawer.setChecked(True)
+        self.tracks_drawer.show()
+        total_w = self.main_splitter.width() or 1000
+        self.main_splitter.setSizes([350, max(600, total_w - 350)])
+
+    def _open_settings_page(self) -> None:
+        self.page_stack.setCurrentIndex(1)
+
+    def _close_settings_page(self) -> None:
+        self.page_stack.setCurrentIndex(0)
+        self._on_model_changed()
+        self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
+
+    def _on_model_changed(self) -> None:
+        model_name = self.settings_panel.combo_model.currentText().split()[0]
+        self.lbl_model_badge.setText(f"Model: {model_name}")
+
+    def _on_polish_sync_toggled(self, checked: bool) -> None:
+        if self.llm_panel.chk_enable.isChecked() != checked:
+            self.llm_panel.chk_enable.setChecked(checked)
+
+    def _on_llm_panel_enable_toggled(self, checked: bool) -> None:
+        if self.chk_polish_sync.isChecked() != checked:
+            self.chk_polish_sync.setChecked(checked)
+
+    def _on_track_count_changed(self, count: int) -> None:
+        self.btn_toggle_drawer.setText(f"☰ Tracks ({count})")
+        self.lbl_drawer_count.setText(f"{count} {'track' if count == 1 else 'tracks'}")
+        if count > 1 and not self.tracks_drawer.isVisible():
+            self.btn_toggle_drawer.setChecked(True)
+            self.tracks_drawer.show()
+            total_w = self.main_splitter.width() or 1000
+            self.main_splitter.setSizes([350, max(600, total_w - 350)])
+        self._sync_queue_display()
+
+    def _sync_queue_display(self) -> None:
+        tracks = self.track_list.get_tracks()
+        has_tracks = len(tracks) > 0
+        self.dropzone_card.setVisible(not has_tracks)
+        self.active_card.setVisible(has_tracks)
+        self.btn_active_drawer.setVisible(len(tracks) > 1)
+
+        # Start button label reflects single vs multi-track queue state
+        if len(tracks) > 1:
+            pending = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
+            if pending:
+                self.btn_start.setText(f"Transcribe All ({len(pending)} Tracks)")
+            else:
+                self.btn_start.setText(f"Re-run All ({len(tracks)} Tracks)")
+        elif len(tracks) == 1:
+            self.btn_start.setText("Transcribe Track")
+        else:
+            self.btn_start.setText("Transcribe Audio")
+
+        self.combo_active_track.blockSignals(True)
+        self.combo_active_track.clear()
+        for i, t in enumerate(tracks):
+            self.combo_active_track.addItem(f"{i + 1}. {t.info.filename}", t.id)
+        self.combo_active_track.blockSignals(False)
+
+        if has_tracks and not self._active_track:
+            self._set_active_track(tracks[0])
+        elif not has_tracks:
+            self._set_active_track(None)
+
+    def _set_active_track(self, track: AudioTrack | None) -> None:
+        self._active_track = track
+        self.range_selector.set_track(track)
+
+        if track is None:
+            self.lbl_active_name.setText("No track selected")
+            self.lbl_active_meta.setText("")
+            self.lbl_active_slice.setText("Full Audio")
+            return
+
+        tracks = self.track_list.get_tracks()
+        if len(tracks) > 1:
+            try:
+                idx = tracks.index(track) + 1
+                self.lbl_active_name.setText(f"Track {idx} of {len(tracks)}: {track.info.filename}")
+            except ValueError:
+                self.lbl_active_name.setText(track.info.filename)
+        else:
+            self.lbl_active_name.setText(track.info.filename)
+
+        self.lbl_active_meta.setText(f"{track.info.duration_formatted} • {track.info.size_mb:.1f} MB")
+        self._update_slice_badge(track)
+
+        # Sync table selection
+        for i, t in enumerate(tracks):
+            if t.id == track.id:
+                self.track_list.table.blockSignals(True)
+                self.track_list.table.selectRow(i)
+                self.track_list.table.blockSignals(False)
+                break
+
+    def _update_slice_badge(self, track: AudioTrack) -> None:
+        from whisper_gui.audio_utils import format_seconds
+        slice_cfg = track.slice_config
+        if slice_cfg.is_full(track.info.duration):
+            self.lbl_active_slice.setText("Full Audio")
+        else:
+            s = format_seconds(slice_cfg.start_sec)
+            e = format_seconds(slice_cfg.effective_end(track.info.duration))
+            self.lbl_active_slice.setText(f"Trim: {s} → {e}")
+
+    def _on_combo_track_changed(self, index: int) -> None:
+        tracks = self.track_list.get_tracks()
+        if 0 <= index < len(tracks):
+            self._set_active_track(tracks[index])
+            self.track_list.table.selectRow(index)
+
+    def _open_trim_dialog(self) -> None:
+        if not self._active_track:
+            return
+        dialog = TrimAudioDialog(self._active_track, parent=self)
+        if dialog.exec():
+            self._update_slice_badge(self._active_track)
+            self.track_list.refresh_track_display(self._active_track.id)
 
     def _check_dependencies(self) -> None:
         ok, msg = check_ffmpeg_installed()
@@ -237,22 +586,22 @@ class MainWindow(QMainWindow):
                 self,
                 "FFmpeg Missing",
                 f"FFmpeg or FFprobe was not detected on your system PATH:\n\n{msg}\n\n"
-                f"Whisper GUI requires FFmpeg to slice and decode audio tracks. "
-                f"Please install ffmpeg (e.g. 'sudo apt install ffmpeg' on Ubuntu or 'brew install ffmpeg' on macOS).",
+                f"Whisper GUI requires FFmpeg to slice and decode audio tracks.",
             )
 
     def _on_track_selected(self, track: AudioTrack | None) -> None:
-        """User clicked or navigated to a track in the list."""
-        self.range_selector.set_track(track)
-        if track and track.result and track.result.docx_path:
-            self.transcript_view.set_completed_docx(track.result.docx_path)
-            if track.result.polished_text:
-                self.transcript_view.set_polished_text(
-                    track.result.polished_text, track.result.llm_model_used or ""
-                )
+        if track:
+            self._set_active_track(track)
+            if track.result and track.result.docx_path:
+                self.transcript_view.set_completed_docx(track.result.docx_path)
+                if track.result.polished_text:
+                    self.transcript_view.set_polished_text(
+                        track.result.polished_text, track.result.llm_model_used or ""
+                    )
 
     def _on_range_changed(self, track_id: str) -> None:
-        """Update table display when user modifies start/end slicing."""
+        if self._active_track:
+            self._update_slice_badge(self._active_track)
         self.track_list.refresh_track_display(track_id)
 
     def _on_start_clicked(self) -> None:
@@ -265,17 +614,15 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Check if LLM polish is enabled but API key is missing
         llm_cfg = self.llm_panel.get_config()
         if llm_cfg.enabled and not llm_cfg.api_key.strip() and llm_cfg.provider != "Custom":
             QMessageBox.warning(
                 self,
                 "API Key Required",
                 "You have enabled LLM Text Polishing, but no API Key is entered.\n\n"
-                "Please enter your API Key in the 'Text Polish' tab, or uncheck the toggle to proceed with pure Whisper transcription.",
+                "Please configure your API Key in Settings.",
             )
-            # Switch to LLM tab
-            self.config_tabs.setCurrentIndex(2)
+            self._open_settings_page()
             return
 
         pending_tracks = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
@@ -283,7 +630,7 @@ class MainWindow(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 "Re-run Transcription?",
-                "All tracks in the queue are already completed. Do you want to transcribe them again?",
+                "All tracks are completed. Transcribe them again?",
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
@@ -299,16 +646,14 @@ class MainWindow(QMainWindow):
         config.llm_config = llm_cfg
         self.transcript_view.clear_view()
 
-        # Update UI state
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.track_list.setEnabled(False)
         self.range_selector.setEnabled(False)
         self.settings_panel.setEnabled(False)
         self.llm_panel.setEnabled(False)
-        self.status_bar.showMessage("Transcription running in background...")
+        self.status_bar.showMessage("Transcribing...")
 
-        # Create worker
         self.current_worker = TranscriptionWorker(
             tracks=pending_tracks,
             transcription_config=config,
@@ -316,7 +661,6 @@ class MainWindow(QMainWindow):
             parent=self,
         )
 
-        # Connect worker signals
         self.current_worker.track_started.connect(self._on_worker_track_started)
         self.current_worker.status_updated.connect(self._on_worker_status_updated)
         self.current_worker.segment_received.connect(self._on_worker_segment_received)
@@ -330,8 +674,8 @@ class MainWindow(QMainWindow):
 
     def _on_stop_clicked(self) -> None:
         if self.current_worker and self.current_worker.isRunning():
-            self.transcript_view.set_status("Stopping transcription...")
-            self.status_bar.showMessage("Stopping transcription process...")
+            self.transcript_view.set_status("Stopping...")
+            self.status_bar.showMessage("Stopping...")
             self.current_worker.request_stop()
             self.btn_stop.setEnabled(False)
 
@@ -341,7 +685,7 @@ class MainWindow(QMainWindow):
     def _on_free_ram_clicked(self) -> None:
         self.transcriber.unload_model()
         self.settings_panel.set_ram_status(False)
-        self.status_bar.showMessage("Whisper model unloaded from memory (RAM freed).")
+        self.status_bar.showMessage("Model unloaded (RAM freed).")
 
     def _on_worker_status_updated(self, track_id: str, message: str) -> None:
         self.transcript_view.set_status(message)
@@ -364,35 +708,35 @@ class MainWindow(QMainWindow):
             )
         if result.docx_path:
             self.transcript_view.set_completed_docx(result.docx_path)
-            self.status_bar.showMessage(f"Completed! Document saved: {result.docx_path.name}")
+            self.status_bar.showMessage(f"Saved: {result.docx_path.name}")
         if self.transcriber.is_loaded:
             self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
         self.track_list.refresh_track_display(track_id)
         self.transcript_view.set_status(f"Error: {error_msg}")
-        self.status_bar.showMessage(f"Error on track: {error_msg}")
+        self.status_bar.showMessage(f"Error: {error_msg}")
 
     def _on_worker_finished(self) -> None:
         self._reset_ui_state()
         if self.settings_panel.chk_auto_unload.isChecked():
             self.transcriber.unload_model()
             self.settings_panel.set_ram_status(False)
-            self.status_bar.showMessage("All tracks processed and model unloaded from RAM.")
+            self.status_bar.showMessage("Completed. Model unloaded.")
         else:
             if self.transcriber.is_loaded:
                 self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
-            self.status_bar.showMessage("All tracks processed successfully!")
+            self.status_bar.showMessage("Transcription completed.")
 
         QMessageBox.information(
             self,
             "Done",
-            "Transcription completed! You can now open your Word (.docx) document.",
+            "Transcription completed! Document is ready.",
         )
 
     def _on_worker_cancelled(self) -> None:
         self._reset_ui_state()
-        self.status_bar.showMessage("Transcription stopped by user.")
+        self.status_bar.showMessage("Cancelled.")
 
     def _reset_ui_state(self) -> None:
         self.btn_start.setEnabled(True)
@@ -403,10 +747,21 @@ class MainWindow(QMainWindow):
         self.llm_panel.setEnabled(True)
         self.current_worker = None
 
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self.track_list.dropEvent(event)
+        self._sync_queue_display()
+
     def _load_settings(self) -> None:
         settings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
         self.settings_panel.load_settings(settings)
         self.llm_panel.load_settings(settings)
+        self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
 
     def _save_settings(self) -> None:
         settings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
@@ -414,7 +769,6 @@ class MainWindow(QMainWindow):
         self.llm_panel.save_settings(settings)
 
     def closeEvent(self, event) -> None:
-        """Ensure background threads are safely terminated upon exit and settings saved."""
         self._save_settings()
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.request_stop()

@@ -5,9 +5,12 @@ from __future__ import annotations
 from PySide6.QtCore import QTime, Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QRadioButton,
     QSlider,
     QTimeEdit,
@@ -19,8 +22,11 @@ from whisper_gui.audio_utils import format_seconds
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
+    COLOR_BG_SURFACE,
     COLOR_BORDER,
     COLOR_PRIMARY,
+    COLOR_PRIMARY_HOVER,
+    COLOR_PRIMARY_TEXT,
     COLOR_SECONDARY,
     COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
@@ -49,11 +55,16 @@ class RangeSelectorWidget(QWidget):
 
         # Compact top control bar: Mode radio + Start/End inputs + Duration
         top_bar = QFrame()
+        top_bar.setObjectName("range_top_bar")
         top_bar.setStyleSheet(f"""
-            QFrame {{
+            #range_top_bar {{
                 background-color: {COLOR_BG_INPUT};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
             }}
         """)
         top_layout = QHBoxLayout(top_bar)
@@ -96,8 +107,7 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_selected_length = QLabel("Selected: 00:00:00")
         self.lbl_selected_length.setStyleSheet(
-            f"font-weight: bold; color: {COLOR_SECONDARY}; background-color: #2D1A28; "
-            f"border: 1px solid {COLOR_SECONDARY}; border-radius: 4px; padding: 2px 8px; font-size: 11px;"
+            f"font-weight: 600; color: {COLOR_TEXT_MAIN}; font-size: 12px;"
         )
         top_layout.addWidget(self.lbl_selected_length)
 
@@ -264,3 +274,33 @@ class RangeSelectorWidget(QWidget):
     @staticmethod
     def _qtime_to_seconds(t: QTime) -> float:
         return float(t.hour() * 3600 + t.minute() * 60 + t.second())
+
+
+class TrimAudioDialog(QDialog):
+    """Clean on-demand modal dialog for audio range selection."""
+
+    def __init__(self, track: AudioTrack, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.track = track
+        self.setWindowTitle(f"Trim Audio - {track.info.filename}")
+        self.setMinimumWidth(520)
+        self.resize(560, 220)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        title = QLabel(f"Trim: {track.info.filename}")
+        title.setStyleSheet(f"font-weight: 600; font-size: 13px; color: {COLOR_TEXT_MAIN};")
+        layout.addWidget(title)
+
+        self.selector = RangeSelectorWidget(self)
+        self.selector.set_track(track)
+        layout.addWidget(self.selector)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.button(QDialogButtonBox.Ok).setText("Apply")
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+

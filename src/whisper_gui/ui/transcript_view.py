@@ -10,7 +10,6 @@ from PySide6.QtGui import QFont, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -38,32 +37,51 @@ from whisper_gui.ui.theme import (
 )
 
 
-class TranscriptView(QGroupBox):
+class TranscriptView(QFrame):
     """Displays real-time streaming transcription segments, progress bar, and export actions."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Live Transcript", parent)
+        super().__init__(parent)
         self._current_docx_path: Path | None = None
         self._raw_segments: list[TranscriptSegment] = []
         self._polished_text: str | None = None
         self._active_mode: str = "raw"  # "raw" or "polished"
 
+        self.setObjectName("transcript_view")
+        self.setStyleSheet(f"""
+            #transcript_view {{
+                background-color: {COLOR_BG_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(6)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(10)
+        layout.setContentsMargins(14, 12, 14, 12)
 
-        # Progress bar & status header
+        # Header: Title + Status + Metrics
         prog_header = QHBoxLayout()
-        self.lbl_status = QLabel("Status: Idle")
-        self.lbl_status.setStyleSheet(f"font-weight: bold; color: {COLOR_PRIMARY}; font-size: 11px;")
-        self.lbl_metrics = QLabel("")
-        self.lbl_metrics.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        prog_header.setSpacing(8)
 
+        lbl_section = QLabel("Transcript")
+        lbl_section.setStyleSheet(f"font-weight: 700; color: {COLOR_TEXT_MAIN}; font-size: 13px;")
+        prog_header.addWidget(lbl_section)
+
+        self.lbl_status = QLabel("Idle")
+        self.lbl_status.setStyleSheet(f"font-weight: 600; color: {COLOR_PRIMARY}; font-size: 12px;")
         prog_header.addWidget(self.lbl_status)
+
         prog_header.addStretch()
+        self.lbl_metrics = QLabel("")
+        self.lbl_metrics.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         prog_header.addWidget(self.lbl_metrics)
         layout.addLayout(prog_header)
 
@@ -71,47 +89,49 @@ class TranscriptView(QGroupBox):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFixedHeight(14)
+        self.progress_bar.setFixedHeight(8)
         layout.addWidget(self.progress_bar)
 
-        # View mode selector bar (Polished vs Raw)
+        # View mode selector bar (Raw vs Polished segmented control)
         mode_bar = QHBoxLayout()
-        mode_bar.setSpacing(6)
+        mode_bar.setSpacing(4)
 
         self.view_btn_group = QButtonGroup(self)
-        self.btn_view_raw = QPushButton("Raw Segments")
+        self.btn_view_raw = QPushButton("Raw")
         self.btn_view_raw.setCheckable(True)
         self.btn_view_raw.setChecked(True)
         self.btn_view_raw.setStyleSheet(f"""
             QPushButton {{
-                padding: 3px 10px;
+                padding: 4px 12px;
                 font-size: 11px;
-                font-weight: bold;
+                font-weight: 600;
                 border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
             }}
             QPushButton:checked {{
-                background-color: {COLOR_BG_INPUT};
+                background-color: {COLOR_PRIMARY};
                 border: 1px solid {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
             }}
         """)
         self.view_btn_group.addButton(self.btn_view_raw)
         mode_bar.addWidget(self.btn_view_raw)
 
-        self.btn_view_polished = QPushButton("Polished Text")
+        self.btn_view_polished = QPushButton("Polished")
         self.btn_view_polished.setCheckable(True)
         self.btn_view_polished.setEnabled(False)
         self.btn_view_polished.setStyleSheet(f"""
             QPushButton {{
-                padding: 3px 10px;
+                padding: 4px 12px;
                 font-size: 11px;
-                font-weight: bold;
+                font-weight: 600;
                 border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
             }}
             QPushButton:checked {{
-                background-color: #261622;
-                border: 1px solid {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY};
+                background-color: {COLOR_PRIMARY};
+                border: 1px solid {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY_TEXT};
             }}
             QPushButton:disabled {{
                 color: {COLOR_TEXT_HINT};
@@ -121,7 +141,7 @@ class TranscriptView(QGroupBox):
         mode_bar.addWidget(self.btn_view_polished)
 
         self.lbl_view_hint = QLabel("")
-        self.lbl_view_hint.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 10px; font-style: italic;")
+        self.lbl_view_hint.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 10px;")
         mode_bar.addWidget(self.lbl_view_hint)
 
         mode_bar.addStretch()
@@ -130,18 +150,17 @@ class TranscriptView(QGroupBox):
         # Text stream display
         self.txt_display = QTextEdit()
         self.txt_display.setReadOnly(True)
-        self.txt_display.setPlaceholderText("Transcribed text and segments will stream here in real time...")
-        self.txt_display.setMinimumHeight(120)
+        self.txt_display.setPlaceholderText("Transcribed text appears here...")
+        self.txt_display.setMinimumHeight(140)
         self.txt_display.setStyleSheet(f"""
             QTextEdit {{
                 background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_MAIN};
-                font-family: -apple-system, "Segoe UI", Roboto, monospace, sans-serif;
-                font-size: 12px;
+                font-size: 13px;
+                line-height: 1.6;
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 8px;
-                line-height: 1.4;
+                border-radius: 6px;
+                padding: 10px;
             }}
         """)
         layout.addWidget(self.txt_display, stretch=1)
@@ -150,59 +169,37 @@ class TranscriptView(QGroupBox):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
-        self.btn_open_docx = QPushButton("Open Document")
-        self.btn_open_docx.setToolTip("Open generated Word document in default office application")
+        self.btn_copy = QPushButton("Copy Text")
+        self.btn_copy.setStyleSheet(f"""
+            QPushButton {{
+                font-weight: 600;
+                padding: 6px 14px;
+            }}
+        """)
+        btn_layout.addWidget(self.btn_copy)
+
+        self.btn_open_docx = QPushButton("Word (.docx)")
         self.btn_open_docx.setStyleSheet(f"""
             QPushButton {{
-                background-color: {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY_TEXT};
-                border: 1px solid {COLOR_SECONDARY};
-                font-weight: bold;
-                padding: 5px 14px;
-                border-radius: 4px;
+                background-color: {COLOR_BG_SURFACE};
+                font-weight: 600;
+                padding: 6px 14px;
             }}
-            QPushButton:hover {{
-                background-color: {COLOR_SECONDARY_HOVER};
-            }}
-            QPushButton:disabled {{
-                border: 1px solid {COLOR_BORDER};
-                color: {COLOR_TEXT_HINT};
-                background-color: {COLOR_BG_INPUT};
+            QPushButton:enabled {{
+                border-color: {COLOR_PRIMARY};
+                color: {COLOR_PRIMARY};
             }}
         """)
         self.btn_open_docx.setEnabled(False)
         btn_layout.addWidget(self.btn_open_docx)
 
         self.btn_open_folder = QPushButton("Open Folder")
-        self.btn_open_folder.setToolTip("Open folder containing the Word document")
-        self.btn_open_folder.setStyleSheet(f"""
-            QPushButton:hover {{
-                border: 1px solid {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY};
-            }}
-        """)
+        self.btn_open_folder.setStyleSheet("padding: 6px 12px;")
         self.btn_open_folder.setEnabled(False)
         btn_layout.addWidget(self.btn_open_folder)
 
-        self.btn_copy = QPushButton("Copy Text")
-        self.btn_copy.setToolTip("Copy active transcript text to clipboard")
-        self.btn_copy.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #17262D;
-                color: {COLOR_PRIMARY};
-                border: 1px solid {COLOR_PRIMARY};
-                font-weight: bold;
-                padding: 5px 14px;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-            }}
-        """)
-        btn_layout.addWidget(self.btn_copy)
-
         self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setStyleSheet("padding: 6px 12px;")
         btn_layout.addWidget(self.btn_clear)
 
         btn_layout.addStretch()

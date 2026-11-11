@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QFileDialog,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -24,6 +24,7 @@ from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_i
 from whisper_gui.models import AudioTrack, TrackStatus
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
+    COLOR_BG_SURFACE,
     COLOR_BORDER,
     COLOR_PRIMARY,
     COLOR_PRIMARY_HOVER,
@@ -49,37 +50,45 @@ STATUS_COLORS = {
 }
 
 
-class TrackListWidget(QGroupBox):
+class TrackListWidget(QFrame):
     """Audio tracks table supporting file selection, directory scanning, and drag-and-drop."""
 
     track_selected = Signal(object)  # Emits AudioTrack or None
     track_count_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Tracks Queue", parent)
+        super().__init__(parent)
         self.setAcceptDrops(True)
         self._tracks: list[AudioTrack] = []
         self._track_map: dict[str, AudioTrack] = {}  # id -> AudioTrack
+
+        self.setObjectName("track_list_frame")
+        self.setStyleSheet("""
+            #track_list_frame {
+                background: transparent;
+                border: none;
+            }
+        """)
 
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(6)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Action toolbar
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
 
-        self.btn_add_files = QPushButton("Add Files")
+        self.btn_add_files = QPushButton("+ Files")
         self.btn_add_files.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_PRIMARY};
                 color: {COLOR_PRIMARY_TEXT};
-                font-weight: bold;
-                padding: 4px 12px;
-                border: 1px solid {COLOR_PRIMARY};
+                font-weight: 600;
+                padding: 4px 10px;
+                border: none;
                 border-radius: 4px;
                 font-size: 12px;
             }}
@@ -89,8 +98,8 @@ class TrackListWidget(QGroupBox):
         """)
         toolbar.addWidget(self.btn_add_files)
 
-        self.btn_add_folder = QPushButton("Add Folder")
-        self.btn_add_folder.setToolTip("Scan a directory recursively for all audio files")
+        self.btn_add_folder = QPushButton("+ Folder")
+        self.btn_add_folder.setToolTip("Scan directory recursively for audio files")
         self.btn_add_folder.setStyleSheet("""
             QPushButton {
                 padding: 4px 10px;
@@ -109,17 +118,12 @@ class TrackListWidget(QGroupBox):
         toolbar.addWidget(self.btn_clear)
 
         toolbar.addStretch()
-
-        self.drop_hint = QLabel("Drag & drop files or folders")
-        self.drop_hint.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 10px;")
-        toolbar.addWidget(self.drop_hint)
-
         layout.addLayout(toolbar)
 
         # Tracks Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Track Name", "Length / Slice", "Status", "Word Document (.docx)"])
+        self.table.setHorizontalHeaderLabels(["Track", "Length", "Status", "Word (.docx)"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -128,18 +132,18 @@ class TrackListWidget(QGroupBox):
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(26)
+        self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLOR_BG_INPUT};
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 4px;
-                gridline-color: #262D3E;
+                gridline-color: {COLOR_BORDER};
                 font-size: 12px;
                 color: {COLOR_TEXT_MAIN};
             }}
             QTableWidget::item:selected {{
-                background-color: #243547;
+                background-color: #1E3A5F;
                 color: {COLOR_TEXT_MAIN};
             }}
         """)
