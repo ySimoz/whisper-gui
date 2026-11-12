@@ -859,6 +859,7 @@ class MainWindow(QMainWindow):
         worker = self._polish_worker
         self._polish_worker = None
         if worker is not None:
+            worker.wait(1000)
             worker.deleteLater()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:

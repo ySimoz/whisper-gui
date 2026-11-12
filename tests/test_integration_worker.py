@@ -74,6 +74,7 @@ def test_worker_end_to_end(qtbot, test_audio_file: Path, tmp_path: Path):
 
     with qtbot.waitSignal(worker.batch_finished, timeout=60000):
         worker.start()
+    worker.wait(5000)
 
     assert len(completed_tracks) == 1
     track_id, result = completed_tracks[0]
@@ -140,6 +141,7 @@ def test_worker_with_llm_polish(qtbot, test_audio_file: Path, tmp_path: Path):
         mock_url.return_value.__enter__.return_value = mock_resp
         with qtbot.waitSignal(worker.batch_finished, timeout=30000):
             worker.start()
+        worker.wait(5000)
 
     assert len(completed_tracks) == 1
     _, result = completed_tracks[0]
@@ -182,6 +184,7 @@ def test_worker_auto_export_disabled(qtbot, tmp_path):
     with patch.object(transcriber, "transcribe", return_value=mock_result):
         with qtbot.waitSignal(worker.batch_finished, timeout=10000):
             worker.start()
+        worker.wait(5000)
 
     assert len(completed_tracks) == 1
     assert not out_docx.exists()

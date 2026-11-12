@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 # Ensure headless offscreen platform for test runner
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -711,11 +711,8 @@ def test_main_window_repolish_flow(qtbot, tmp_path):
 
             with patch("whisper_gui.worker.polish_transcript", return_value="Hello there."):
                 window.transcript_view.btn_polish.click()
-                worker = window._polish_worker
-                assert worker is not None
-                with qtbot.waitSignal(worker.finished, timeout=5000):
-                    pass
-                worker.wait(2000)
+                assert window._polish_worker is not None
+                qtbot.waitUntil(lambda: window._polish_worker is None, timeout=5000)
 
             assert window.transcript_view.txt_display.toPlainText() == "Hello there."
             assert window.transcript_view.btn_polish.text() == "Re-polish"
@@ -866,6 +863,7 @@ def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path):
     dialog.close()
     assert dialog._player is None
     assert dialog._audio_output is None
+    QApplication.processEvents()
 
 
 def test_trim_audio_dialog_missing_file_and_accept_reject(qtbot, tmp_path):
@@ -889,3 +887,4 @@ def test_trim_audio_dialog_missing_file_and_accept_reject(qtbot, tmp_path):
     dialog2.accept()
     assert dialog2._player is None
     assert dialog2._audio_output is None
+    QApplication.processEvents()

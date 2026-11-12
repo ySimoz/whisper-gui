@@ -457,6 +457,7 @@ class TrimAudioDialog(QDialog):
         self._preview_end_ms = None
         if self._player is not None:
             try:
+                self._player.blockSignals(True)
                 self._player.stop()
                 self._player.setSource(QUrl())
                 self._player.setAudioOutput(None)
@@ -465,6 +466,7 @@ class TrimAudioDialog(QDialog):
             self._player.deleteLater()
             self._player = None
         if self._audio_output is not None:
+            self._audio_output.blockSignals(True)
             self._audio_output.deleteLater()
             self._audio_output = None
 
