@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -58,6 +58,7 @@ from whisper_gui.ui.theme import (
 )
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
+from whisper_gui.ui.update_dialog import UpdateCheckWorker, UpdateDialog
 from whisper_gui.worker import TranscriptionWorker
 
 
@@ -97,12 +98,16 @@ class MainWindow(QMainWindow):
         self.transcriber = Transcriber()
         self.current_worker: TranscriptionWorker | None = None
         self._active_track: AudioTrack | None = None
+        self._update_check_worker: UpdateCheckWorker | None = None
 
         self._build_ui()
         self._load_settings()
         self._on_model_changed()
         self._check_dependencies()
         self._sync_queue_display()
+
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            QTimer.singleShot(500, self._check_for_updates)
 
     def _build_ui(self) -> None:
         central_widget = QWidget(self)
@@ -784,8 +789,26 @@ class MainWindow(QMainWindow):
         self.settings_panel.save_settings(settings)
         self.llm_panel.save_settings(settings)
 
+    def _check_for_updates(self) -> None:
+        if self._update_check_worker and self._update_check_worker.isRunning():
+            return
+        self._update_check_worker = UpdateCheckWorker(parent=self)
+        self._update_check_worker.update_available.connect(self._on_update_available)
+        self._update_check_worker.finished.connect(self._on_update_check_finished)
+        self._update_check_worker.start()
+
+    def _on_update_available(self, release) -> None:
+        dialog = UpdateDialog(release, parent=self)
+        dialog.exec()
+
+    def _on_update_check_finished(self) -> None:
+        self._update_check_worker = None
+
     def closeEvent(self, event) -> None:
         self._save_settings()
+        if self._update_check_worker and self._update_check_worker.isRunning():
+            self._update_check_worker.requestInterruption()
+            self._update_check_worker.wait(1000)
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.request_stop()
             self.current_worker.wait(3000)

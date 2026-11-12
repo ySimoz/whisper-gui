@@ -80,6 +80,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg libgl1 libegl1 libxkbcommon-x11-0
 
+      - name: Sync Version to Release Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          v = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          p = pathlib.Path("src/whisper_gui/__init__.py")
+          p.write_text(re.sub(r'__version__\s*=\s*["\'].*?["\']', f'__version__ = "{v}"', p.read_text()))
+          PY
+
       - name: Install Dependencies & PyInstaller
         run: |
           python -m pip install --upgrade pip
@@ -120,6 +131,17 @@ jobs:
         run: |
           brew install ffmpeg
 
+      - name: Sync Version to Release Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          v = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          p = pathlib.Path("src/whisper_gui/__init__.py")
+          p.write_text(re.sub(r'__version__\s*=\s*["\'].*?["\']', f'__version__ = "{v}"', p.read_text()))
+          PY
+
       - name: Install Dependencies & PyInstaller
         run: |
           python -m pip install --upgrade pip
@@ -130,10 +152,11 @@ jobs:
         run: |
           python scripts/bundle_app.py
 
-      - name: Archive macOS Package
+      - name: Ad-hoc Sign & Archive macOS Package
         run: |
           cd dist
-          zip -r WhisperGUI-macos.zip WhisperGUI.app
+          codesign --force --deep --sign - WhisperGUI.app
+          ditto -c -k --keepParent WhisperGUI.app WhisperGUI-macos.zip
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v7
@@ -160,6 +183,17 @@ jobs:
         run: |
           choco install ffmpeg --no-progress
           echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
+
+      - name: Sync Version to Release Tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          v = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          p = pathlib.Path("src/whisper_gui/__init__.py")
+          p.write_text(re.sub(r'__version__\s*=\s*["\'].*?["\']', f'__version__ = "{v}"', p.read_text()))
+          PY
 
       - name: Install Dependencies & PyInstaller
         run: |
@@ -196,6 +230,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Download Linux Artifact
         uses: actions/download-artifact@v8
         with:
@@ -223,6 +260,45 @@ jobs:
             echo "tag=latest-build" >> $GITHUB_OUTPUT
           fi
 
+      - name: Build Release Notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${{ steps.tag_info.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          python - <<'PY'
+          import os, pathlib, re
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          changelog_path = pathlib.Path("CHANGELOG.md")
+          section = ""
+          if changelog_path.is_file():
+              text = changelog_path.read_text(encoding="utf-8")
+              pattern = rf"(?ms)^##\s+{re.escape(tag)}\s*\n(.*?)(?=^##\s+|\Z)"
+              m = re.search(pattern, text)
+              if m:
+                  section = m.group(1).strip()
+
+          if not section:
+              section = "### What's New\n- Maintenance and stability improvements."
+
+          downloads = (
+              "---\n\n"
+              "### Downloads by Operating System\n\n"
+              "| Operating System | Download File | How to Run |\n"
+              "|---|---|---|\n"
+              f"| **macOS (Apple Silicon & Intel)** | [`WhisperGUI-macos.zip`](https://github.com/{repo}/releases/download/{tag}/WhisperGUI-macos.zip) | Unzip to get `WhisperGUI.app`, double-click or drag into `/Applications` |\n"
+              f"| **Windows (x64)** | [`WhisperGUI-windows-x64.zip`](https://github.com/{repo}/releases/download/{tag}/WhisperGUI-windows-x64.zip) | Extract and run `WhisperGUI\\WhisperGUI.exe` |\n"
+              f"| **Linux (x86_64)** | [`WhisperGUI-linux-x86_64.tar.gz`](https://github.com/{repo}/releases/download/{tag}/WhisperGUI-linux-x86_64.tar.gz) | Extract and run `./WhisperGUI/WhisperGUI` |\n"
+          )
+
+          pathlib.Path("release-body.md").write_text(f"{section}\n\n{downloads}", encoding="utf-8")
+          PY
+        env:
+          TAG: ${{ steps.tag_info.outputs.tag }}
+          REPO: ${{ github.repository }}
+
       - name: Create GitHub Release & Upload Binaries
         uses: softprops/action-gh-release@v3
         with:
@@ -234,25 +310,6 @@ jobs:
             release-assets/WhisperGUI-linux-x86_64.tar.gz
             release-assets/WhisperGUI-macos.zip
             release-assets/WhisperGUI-windows-x64.zip
-          body: |
-            ## Whisper GUI Desktop Application
-
-            ### 📦 Downloads by Operating System
-
-            | Operating System | Download File | How to Run |
-            |---|---|---|
-            | 🍏 **macOS (Apple Silicon & Intel)** | [`WhisperGUI-macos.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-macos.zip) | Unzip to get `WhisperGUI.app`, double-click or drag into `/Applications` |
-            | 🪟 **Windows (x64)** | [`WhisperGUI-windows-x64.zip`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-windows-x64.zip) | Extract and run `WhisperGUI\WhisperGUI.exe` |
-            | 🐧 **Linux (x86_64)** | [`WhisperGUI-linux-x86_64.tar.gz`](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag_info.outputs.tag }}/WhisperGUI-linux-x86_64.tar.gz) | Extract and run `./WhisperGUI/WhisperGUI` |
-
-            ---
-
-            ### ✨ Highlights
-            - **Local-First Audio Transcription**: High-accuracy offline transcription via faster-whisper (`large-v3-turbo` by default).
-            - **Click-to-Import Dropzone**: Clean drag-and-drop dropzone with one-click file picker integration.
-            - **Multi-Format Document Export**: Formatted export to Word (.docx), publication-quality PDF (.pdf), Markdown (.md), and Plain Text (.txt).
-            - **Lateral Tracks Drawer**: Slide-out multi-track queue with live status pills and one-click track activation.
-            - **Audio Length Trimming**: Frame-accurate FFmpeg range extraction without modifying original files.
-            - **Optional Speech Polishing**: Disfluency removal and grammar polishing via AI models.
+          body_path: release-body.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

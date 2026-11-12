@@ -139,6 +139,15 @@ coll = COLLECT(
     name='WhisperGUI',
 )
 
+# Read app version dynamically so bundle plist always matches __version__
+_init_file = project_root / 'src' / 'whisper_gui' / '__init__.py'
+app_version = '0.1.0'
+if _init_file.is_file():
+    for _line in _init_file.read_text(encoding='utf-8').splitlines():
+        if _line.startswith('__version__'):
+            app_version = _line.split('=', 1)[1].strip().strip('"\'')
+            break
+
 if sys.platform == 'darwin':
     icns_p = project_root / 'assets' / 'icon.icns'
     mac_icon = str(icns_p) if icns_p.is_file() else None
@@ -151,8 +160,8 @@ if sys.platform == 'darwin':
             'CFBundleName': 'Whisper Transcriber',
             'CFBundleDisplayName': 'Whisper Transcriber',
             'CFBundleIdentifier': 'com.whispergui.app',
-            'CFBundleVersion': '0.1.0',
-            'CFBundleShortVersionString': '0.1.0',
+            'CFBundleVersion': app_version,
+            'CFBundleShortVersionString': app_version,
             'NSHighResolutionCapable': 'True',
             'NSRequiresAquaSystemAppearance': 'False',
         },
