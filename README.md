@@ -160,12 +160,13 @@ Settings, cached models, and temporary files are stored outside the application 
 
 | Data | Windows | macOS | Linux |
 |---|---|---|---|
-| **Settings & API key** (`QSettings` — `LLM/api_key`) | Registry: `HKCU\Software\WhisperGUI\WhisperAudioTranscriber` | `~/Library/Preferences/com.whispergui.WhisperAudioTranscriber.plist` | `~/.config/WhisperGUI/WhisperAudioTranscriber.conf` |
+| **Settings** (`QSettings`) | Registry: `HKCU\Software\WhisperGUI\WhisperAudioTranscriber` | `~/Library/Preferences/com.whispergui.WhisperAudioTranscriber.plist` | `~/.config/WhisperGUI/WhisperAudioTranscriber.conf` |
+| **LLM API key** | Encrypted via Windows DPAPI (`LLM/api_key_dpapi` in Registry) | macOS Keychain (`WhisperGUI` / `llm_api_key`) | Secret Service via `secret-tool` (or `QSettings` fallback) |
 | **Downloaded Whisper models** (`HF_HUB_CACHE`) | `%USERPROFILE%\.cache\huggingface\hub\` | `~/.cache/huggingface/hub/` | `~/.cache/huggingface/hub/` |
 | **Temporary audio slices & update staging** | `%TEMP%` | `$TMPDIR` | `/tmp` |
 | **Exported transcripts** | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) |
 
-> **Security note:** Optional LLM API keys are persisted via Qt's `QSettings` in plain text under your user profile rather than OS keychain/DPAPI encryption. Remove the entry above if you want to wipe saved credentials.
+> **Security note:** On macOS and Windows (and Linux when `secret-tool` is installed), LLM API keys are stored via OS credential storage rather than plain text; any legacy plain-text key is migrated automatically on load.
 
 ---
 

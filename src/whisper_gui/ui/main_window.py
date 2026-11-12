@@ -59,7 +59,7 @@ from whisper_gui.ui.theme import (
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
 from whisper_gui.ui.update_dialog import UpdateCheckWorker, UpdateDialog
-from whisper_gui.worker import TranscriptionWorker
+from whisper_gui.worker import PolishWorker, TranscriptionWorker
 
 
 class DropzoneCard(QFrame):
@@ -97,8 +97,10 @@ class MainWindow(QMainWindow):
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
         self.current_worker: TranscriptionWorker | None = None
+        self._polish_worker: PolishWorker | None = None
         self._active_track: AudioTrack | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
+        self._manual_update_check = False
 
         self._build_ui()
         self._load_settings()
@@ -449,8 +451,10 @@ class MainWindow(QMainWindow):
         self.track_list.track_count_changed.connect(self._on_track_count_changed)
         self.range_selector.range_changed.connect(self._on_range_changed)
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
+        self.settings_panel.check_updates_requested.connect(lambda: self._check_for_updates(manual=True))
         self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
         self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
+        self.transcript_view.polish_requested.connect(self._on_repolish_clicked)
 
         # Initial state
         self.range_selector.set_track(None)
@@ -472,6 +476,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.setSizes([350, max(600, total_w - 350)])
 
     def _open_settings_page(self) -> None:
+        self.settings_panel._update_disk_status()
         self.page_stack.setCurrentIndex(1)
 
     def _close_settings_page(self) -> None:
@@ -532,8 +537,19 @@ class MainWindow(QMainWindow):
             self._set_active_track(None)
 
     def _set_active_track(self, track: AudioTrack | None) -> None:
+        prev_track = self._active_track
         self._active_track = track
         self.range_selector.set_track(track)
+
+        is_worker_running = self.current_worker is not None and self.current_worker.isRunning()
+        streaming_to_other = (
+            is_worker_running
+            and prev_track is not None
+            and prev_track is not track
+            and prev_track.status in (TrackStatus.SLICING, TrackStatus.TRANSCRIBING)
+        )
+        if not streaming_to_other:
+            self.transcript_view.load_track(track, self.settings_panel.get_config())
 
         if track is None:
             self.lbl_active_name.setText("No track selected")
@@ -601,14 +617,6 @@ class MainWindow(QMainWindow):
     def _on_track_selected(self, track: AudioTrack | None) -> None:
         if track:
             self._set_active_track(track)
-            if track.result:
-                self.transcript_view.set_completed_track(
-                    track, track.result, self.settings_panel.get_config()
-                )
-                if track.result.polished_text:
-                    self.transcript_view.set_polished_text(
-                        track.result.polished_text, track.result.llm_model_used or ""
-                    )
 
     def _on_range_changed(self, track_id: str) -> None:
         if self._active_track:
@@ -692,6 +700,11 @@ class MainWindow(QMainWindow):
 
     def _on_worker_track_started(self, track_id: str) -> None:
         self.track_list.refresh_track_display(track_id)
+        track = self.track_list.get_track(track_id)
+        if track:
+            self._set_active_track(track)
+            self.transcript_view.clear_view()
+            self.transcript_view.set_status(f"Transcribing {track.info.filename}...")
 
     def _on_free_ram_clicked(self) -> None:
         self.transcriber.unload_model()
@@ -699,34 +712,41 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Model unloaded (RAM freed).")
 
     def _on_worker_status_updated(self, track_id: str, message: str) -> None:
-        self.transcript_view.set_status(message)
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.set_status(message)
         self.status_bar.showMessage(message)
         self.track_list.refresh_track_display(track_id)
         if self.transcriber.is_loaded:
             self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_segment_received(self, track_id: str, segment: TranscriptSegment) -> None:
-        self.transcript_view.append_segment(segment)
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.append_segment(segment)
 
     def _on_worker_progress_updated(self, track_id: str, percent: int, time_str: str) -> None:
-        self.transcript_view.set_progress(percent, time_str)
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.set_progress(percent, time_str)
 
     def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
-        self.track_list.refresh_track_display(track_id)
-        if result.polished_text:
-            self.transcript_view.set_polished_text(
-                result.polished_text, result.llm_model_used or ""
-            )
         track = self.track_list.get_track(track_id)
         if track:
-            self.transcript_view.set_completed_track(
-                track, result, self.settings_panel.get_config()
-            )
-        elif result.docx_path:
-            self.transcript_view.set_completed_docx(result.docx_path)
-        else:
-            self.transcript_view.btn_export.setEnabled(True)
-            self.transcript_view.btn_open_folder.setEnabled(True)
+            track.result = result
+        self.track_list.refresh_track_display(track_id)
+
+        if self._active_track is None or self._active_track.id == track_id:
+            if result.polished_text:
+                self.transcript_view.set_polished_text(
+                    result.polished_text, result.llm_model_used or ""
+                )
+            if track:
+                self.transcript_view.set_completed_track(
+                    track, result, self.settings_panel.get_config()
+                )
+            elif result.docx_path:
+                self.transcript_view.set_completed_docx(result.docx_path)
+            else:
+                self.transcript_view.btn_export.setEnabled(True)
+                self.transcript_view.btn_open_folder.setEnabled(True)
 
         if result.docx_path:
             self.status_bar.showMessage(f"Saved: {result.docx_path.name}")
@@ -735,7 +755,8 @@ class MainWindow(QMainWindow):
 
     def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
         self.track_list.refresh_track_display(track_id)
-        self.transcript_view.set_status(f"Error: {error_msg}")
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.set_status(f"Error: {error_msg}")
         self.status_bar.showMessage(f"Error: {error_msg}")
 
     def _on_worker_finished(self) -> None:
@@ -768,6 +789,78 @@ class MainWindow(QMainWindow):
         self.llm_panel.setEnabled(True)
         self.current_worker = None
 
+    def _on_repolish_clicked(self) -> None:
+        if self._polish_worker and self._polish_worker.isRunning():
+            return
+        if self.current_worker and self.current_worker.isRunning():
+            return
+
+        track = self._active_track
+        if not track or not track.result:
+            return
+
+        raw_text = (track.result.full_text or "").strip()
+        if not raw_text and track.result.segments:
+            raw_text = " ".join(s.text for s in track.result.segments if s.text).strip()
+        if not raw_text:
+            return
+
+        llm_cfg = self.llm_panel.get_config()
+        if not llm_cfg.api_key.strip() and llm_cfg.provider != "Custom":
+            QMessageBox.warning(
+                self,
+                "API Key Required",
+                "No LLM API Key is configured.\n\nPlease enter your API Key in Settings.",
+            )
+            self._open_settings_page()
+            return
+
+        self.transcript_view.btn_polish.setEnabled(False)
+        self.btn_start.setEnabled(False)
+        self.transcript_view.set_status(f"Polishing with {llm_cfg.model_name}...")
+        self.status_bar.showMessage(f"Polishing with {llm_cfg.model_name}...")
+
+        self._polish_worker = PolishWorker(track=track, llm_config=llm_cfg, parent=self)
+        self._polish_worker.completed.connect(self._on_polish_completed)
+        self._polish_worker.failed.connect(self._on_polish_failed)
+        self._polish_worker.cancelled.connect(self._on_polish_cancelled)
+        self._polish_worker.finished.connect(self._on_polish_worker_finished)
+        self._polish_worker.start()
+
+    def _on_polish_completed(self, track_id: str, result: TranscriptionResult) -> None:
+        self.btn_start.setEnabled(True)
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.set_polished_text(
+                result.polished_text or "", result.llm_model_used or ""
+            )
+            self.transcript_view.set_status("Transcript polished successfully.")
+        self.status_bar.showMessage("Transcript polished successfully.")
+        self.track_list.refresh_track_display(track_id)
+
+    def _on_polish_failed(self, track_id: str, error_msg: str) -> None:
+        self.btn_start.setEnabled(True)
+        self.transcript_view._update_polish_button_state()
+        if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.set_status(f"Polish error: {error_msg}")
+        self.status_bar.showMessage(f"Polish error: {error_msg}")
+        QMessageBox.warning(
+            self,
+            "Polishing Failed",
+            f"Failed to polish transcript:\n\n{error_msg}",
+        )
+
+    def _on_polish_cancelled(self) -> None:
+        self.btn_start.setEnabled(True)
+        self.transcript_view._update_polish_button_state()
+        self.transcript_view.set_status("Polishing cancelled.")
+        self.status_bar.showMessage("Polishing cancelled.")
+
+    def _on_polish_worker_finished(self) -> None:
+        worker = self._polish_worker
+        self._polish_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -789,19 +882,39 @@ class MainWindow(QMainWindow):
         self.settings_panel.save_settings(settings)
         self.llm_panel.save_settings(settings)
 
-    def _check_for_updates(self) -> None:
+    def _check_for_updates(self, manual: bool = False) -> None:
         if self._update_check_worker and self._update_check_worker.isRunning():
             return
+        self._manual_update_check = manual
+        if manual:
+            self.settings_panel.btn_check_updates.setEnabled(False)
+            self.status_bar.showMessage("Checking for updates...")
         self._update_check_worker = UpdateCheckWorker(parent=self)
         self._update_check_worker.update_available.connect(self._on_update_available)
+        self._update_check_worker.no_update.connect(self._on_no_update_available)
         self._update_check_worker.finished.connect(self._on_update_check_finished)
         self._update_check_worker.start()
 
     def _on_update_available(self, release) -> None:
+        self._manual_update_check = False
         dialog = UpdateDialog(release, parent=self)
         dialog.exec()
 
+    def _on_no_update_available(self) -> None:
+        if self._manual_update_check:
+            self._manual_update_check = False
+            self.status_bar.showMessage(f"You are on the latest version (v{__version__}).")
+            QMessageBox.information(
+                self,
+                "No Updates Available",
+                f"No updates available. You are already running the latest version (v{__version__}).",
+            )
+
     def _on_update_check_finished(self) -> None:
+        self.settings_panel.btn_check_updates.setEnabled(True)
+        if self._update_check_worker is not None:
+            self._update_check_worker.wait(1000)
+            self._update_check_worker.deleteLater()
         self._update_check_worker = None
 
     def closeEvent(self, event) -> None:
@@ -812,4 +925,7 @@ class MainWindow(QMainWindow):
         if self.current_worker and self.current_worker.isRunning():
             self.current_worker.request_stop()
             self.current_worker.wait(3000)
+        if self._polish_worker and self._polish_worker.isRunning():
+            self._polish_worker.request_stop()
+            self._polish_worker.wait(3000)
         event.accept()

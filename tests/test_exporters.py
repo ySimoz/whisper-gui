@@ -7,7 +7,9 @@ from whisper_gui.exporters import (
     export_transcript_to_docx,
     export_transcript_to_md,
     export_transcript_to_pdf,
+    export_transcript_to_srt,
     export_transcript_to_txt,
+    export_transcript_to_vtt,
 )
 from whisper_gui.models import (
     AudioInfo,
@@ -90,10 +92,53 @@ def test_export_transcript_to_pdf(tmp_path: Path):
     assert res_path.stat().st_size > 1000  # Valid rendered PDF
 
 
+def test_export_transcript_to_srt(tmp_path: Path):
+    track_info, slice_cfg, tx_cfg, result = _make_sample_data()
+    out_file = tmp_path / "transcript.srt"
+
+    res_path = export_transcript_to_srt(out_file, track_info, slice_cfg, tx_cfg, result)
+    assert res_path.exists()
+    content = res_path.read_text(encoding="utf-8")
+
+    assert "1\n00:00:10,000 --> 00:00:15,000\nWelcome to the interview." in content
+    assert "2\n00:00:15,500 --> 00:00:22,000\nThank you for having me today." in content
+
+
+def test_export_transcript_to_srt_fallback_full_text(tmp_path: Path):
+    result = TranscriptionResult(full_text="Single fallback line.", audio_duration=12.5)
+    out_file = tmp_path / "fallback.srt"
+
+    res_path = export_transcript_to_srt(out_file, result=result)
+    content = res_path.read_text(encoding="utf-8")
+    assert content == "1\n00:00:00,000 --> 00:00:12,500\nSingle fallback line.\n"
+
+
+def test_export_transcript_to_vtt(tmp_path: Path):
+    track_info, slice_cfg, tx_cfg, result = _make_sample_data()
+    out_file = tmp_path / "transcript.vtt"
+
+    res_path = export_transcript_to_vtt(out_file, track_info, slice_cfg, tx_cfg, result)
+    assert res_path.exists()
+    content = res_path.read_text(encoding="utf-8")
+
+    assert content.startswith("WEBVTT\n\n")
+    assert "00:00:10.000 --> 00:00:15.000\nWelcome to the interview." in content
+    assert "00:00:15.500 --> 00:00:22.000\nThank you for having me today." in content
+
+
+def test_export_transcript_to_vtt_fallback_full_text(tmp_path: Path):
+    result = TranscriptionResult(full_text="Single fallback VTT line.", audio_duration=8.25)
+    out_file = tmp_path / "fallback.vtt"
+
+    res_path = export_transcript_to_vtt(out_file, result=result)
+    content = res_path.read_text(encoding="utf-8")
+    assert content == "WEBVTT\n\n00:00:00.000 --> 00:00:08.250\nSingle fallback VTT line.\n"
+
+
 def test_export_transcript_dispatcher(tmp_path: Path):
     track_info, slice_cfg, tx_cfg, result = _make_sample_data()
 
-    for fmt in ["docx", "pdf", "md", "txt"]:
+    for fmt in ["docx", "pdf", "md", "txt", "srt", "vtt"]:
         target = tmp_path / f"export.{fmt}"
         out = export_transcript(fmt, target, track_info, slice_cfg, tx_cfg, result)
         assert out.exists()

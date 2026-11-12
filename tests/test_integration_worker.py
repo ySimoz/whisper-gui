@@ -9,14 +9,17 @@ from docx import Document
 
 from whisper_gui.audio_utils import get_audio_info, get_ffmpeg_cmd
 from whisper_gui.models import (
+    AudioInfo,
     AudioTrack,
+    LLMConfig,
     SliceConfig,
     SliceMode,
+    TranscriptSegment,
     TranscriptionConfig,
     TranscriptionResult,
 )
 from whisper_gui.transcriber import Transcriber
-from whisper_gui.worker import TranscriptionWorker
+from whisper_gui.worker import PolishWorker, TranscriptionWorker
 
 
 @pytest.fixture
@@ -182,3 +185,87 @@ def test_worker_auto_export_disabled(qtbot, tmp_path):
 
     assert len(completed_tracks) == 1
     assert not out_docx.exists()
+
+
+def test_polish_worker_success(qtbot, tmp_path):
+    audio_path = tmp_path / "dummy.wav"
+    audio_path.touch()
+    info = AudioInfo(path=audio_path, filename="dummy.wav", duration=5.0)
+    track = AudioTrack(audio_path, info)
+    track.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=2.0, text="um hello world")],
+        full_text="um hello world",
+        llm_error="previous error",
+    )
+
+    llm_cfg = LLMConfig(
+        enabled=True,
+        provider="DeepSeek",
+        model_name="deepseek-v4-pro",
+        api_key="sk-test",
+    )
+    worker = PolishWorker(track=track, llm_config=llm_cfg)
+
+    completed = []
+    worker.completed.connect(lambda tid, res: completed.append((tid, res)))
+
+    with patch("whisper_gui.worker.polish_transcript", return_value="Hello world.") as mock_polish:
+        with qtbot.waitSignal(worker.finished, timeout=5000):
+            worker.start()
+        worker.wait(2000)
+
+    mock_polish.assert_called_once()
+    assert mock_polish.call_args.kwargs["raw_text"] == "um hello world"
+    assert len(completed) == 1
+    tid, res = completed[0]
+    assert tid == track.id
+    assert res.polished_text == "Hello world."
+    assert res.llm_model_used == "deepseek-v4-pro"
+    assert res.llm_instructions_name == "Default Instructions"
+    assert res.llm_error is None
+
+
+def test_polish_worker_segments_fallback_and_failure(qtbot, tmp_path):
+    audio_path = tmp_path / "dummy2.wav"
+    audio_path.touch()
+    info = AudioInfo(path=audio_path, filename="dummy2.wav", duration=5.0)
+    track = AudioTrack(audio_path, info)
+    track.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=1.0, text="from segments")],
+        full_text="",
+    )
+
+    llm_cfg = LLMConfig(provider="DeepSeek", model_name="deepseek-flash", api_key="sk-test")
+    worker = PolishWorker(track=track, llm_config=llm_cfg)
+
+    failed = []
+    worker.failed.connect(lambda tid, msg: failed.append((tid, msg)))
+
+    with patch("whisper_gui.worker.polish_transcript", side_effect=RuntimeError("API down")) as mock_polish:
+        with qtbot.waitSignal(worker.finished, timeout=5000):
+            worker.start()
+        worker.wait(2000)
+
+    assert mock_polish.call_args.kwargs["raw_text"] == "from segments"
+    assert failed == [(track.id, "API down")]
+    assert track.result.llm_error == "API down"
+
+
+def test_polish_worker_cancelled(qtbot, tmp_path):
+    audio_path = tmp_path / "dummy3.wav"
+    audio_path.touch()
+    info = AudioInfo(path=audio_path, filename="dummy3.wav", duration=5.0)
+    track = AudioTrack(audio_path, info)
+    track.result = TranscriptionResult(full_text="some text")
+
+    llm_cfg = LLMConfig(provider="DeepSeek", model_name="deepseek-flash", api_key="sk-test")
+    worker = PolishWorker(track=track, llm_config=llm_cfg)
+    cancelled_called = []
+    worker.cancelled.connect(lambda: cancelled_called.append(True))
+    worker.request_stop()
+    assert worker.should_stop() is True
+
+    with qtbot.waitSignal(worker.finished, timeout=5000):
+        worker.start()
+    worker.wait(2000)
+    assert cancelled_called == [True]

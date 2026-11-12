@@ -13,7 +13,14 @@ from PySide6.QtCore import QObject, QThread, Signal
 from whisper_gui.audio_utils import CancelledError, slice_audio
 from whisper_gui.exporters import export_transcript
 from whisper_gui.llm_cleaner import load_instructions, polish_transcript
-from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionConfig, TranscriptionResult
+from whisper_gui.models import (
+    AudioTrack,
+    LLMConfig,
+    TrackStatus,
+    TranscriptSegment,
+    TranscriptionConfig,
+    TranscriptionResult,
+)
 from whisper_gui.transcriber import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -227,3 +234,74 @@ class TranscriptionWorker(QThread):
                 except OSError:
                     pass
             self._current_temp_wav = None
+
+
+class PolishWorker(QThread):
+    """Background thread that re-polishes an existing transcript without re-transcribing."""
+
+    completed = Signal(str, object)  # track_id, TranscriptionResult
+    failed = Signal(str, str)        # track_id, error_message
+    cancelled = Signal()
+
+    def __init__(
+        self,
+        track: AudioTrack,
+        llm_config: LLMConfig,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.track = track
+        self.llm_config = llm_config
+        self._is_cancelled = False
+
+    def request_stop(self) -> None:
+        """Signal the worker to stop processing."""
+        self._is_cancelled = True
+
+    def should_stop(self) -> bool:
+        """Check if stop was requested."""
+        return self._is_cancelled
+
+    def run(self) -> None:
+        """Execute LLM polishing on the track's existing transcript."""
+        result = self.track.result
+        if not result:
+            self.failed.emit(self.track.id, "No transcription result available to polish.")
+            return
+
+        raw_text = (result.full_text or "").strip()
+        if not raw_text and result.segments:
+            raw_text = " ".join(s.text for s in result.segments if s.text).strip()
+
+        if not raw_text:
+            self.failed.emit(self.track.id, "Transcript has no text to polish.")
+            return
+
+        if self.should_stop():
+            self.cancelled.emit()
+            return
+
+        try:
+            instructions_text, source_name = load_instructions(self.llm_config)
+            polished = polish_transcript(
+                raw_text=raw_text,
+                config=self.llm_config,
+                instructions=instructions_text,
+                cancel_check=self.should_stop,
+            )
+
+            if self.should_stop():
+                self.cancelled.emit()
+                return
+
+            result.polished_text = polished
+            result.llm_model_used = self.llm_config.model_name
+            result.llm_instructions_name = source_name
+            result.llm_error = None
+            self.completed.emit(self.track.id, result)
+        except InterruptedError:
+            self.cancelled.emit()
+        except Exception as exc:
+            logger.warning("LLM re-polishing failed: %s", exc)
+            result.llm_error = str(exc)
+            self.failed.emit(self.track.id, str(exc))

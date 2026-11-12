@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTime, Qt, Signal
+from PySide6.QtCore import QTime, QUrl, Qt, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -17,6 +18,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+except ImportError:
+    QAudioOutput = None  # type: ignore[assignment]
+    QMediaPlayer = None  # type: ignore[assignment]
 
 from whisper_gui.audio_utils import format_seconds
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode
@@ -282,9 +289,14 @@ class TrimAudioDialog(QDialog):
     def __init__(self, track: AudioTrack, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.track = track
+        self._player = None
+        self._audio_output = None
+        self._preview_end_ms: int | None = None
+        self._duration_ms: int = int(round(max(0.0, track.info.duration) * 1000))
+
         self.setWindowTitle(f"Trim Audio - {track.info.filename}")
         self.setMinimumWidth(520)
-        self.resize(560, 220)
+        self.resize(560, 270)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -298,9 +310,173 @@ class TrimAudioDialog(QDialog):
         self.selector.set_track(track)
         layout.addWidget(self.selector)
 
+        # Compact audio preview bar
+        preview_bar = QFrame()
+        preview_bar.setObjectName("trim_preview_bar")
+        preview_bar.setStyleSheet(f"""
+            #trim_preview_bar {{
+                background-color: {COLOR_BG_INPUT};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 4px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        preview_layout = QHBoxLayout(preview_bar)
+        preview_layout.setContentsMargins(10, 6, 10, 6)
+        preview_layout.setSpacing(8)
+
+        self.btn_play_pause = QPushButton("▶ Play")
+        self.btn_play_pause.clicked.connect(self._on_play_pause)
+        preview_layout.addWidget(self.btn_play_pause)
+
+        self.btn_play_selection = QPushButton("▶ Preview Range")
+        self.btn_play_selection.clicked.connect(self._on_play_selection)
+        preview_layout.addWidget(self.btn_play_selection)
+
+        preview_layout.addStretch()
+
+        self.lbl_playback_pos = QLabel("00:00:00 / 00:00:00")
+        self.lbl_playback_pos.setStyleSheet(
+            f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-weight: 500;"
+        )
+        preview_layout.addWidget(self.lbl_playback_pos)
+
+        layout.addWidget(preview_bar)
+
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btn_box.button(QDialogButtonBox.Ok).setText("Apply")
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
+
+        self.selector.range_changed.connect(self._on_range_changed)
+        self._init_player()
+
+    def _init_player(self) -> None:
+        has_media = False
+        if QMediaPlayer is not None and QAudioOutput is not None and self.track.file_path.is_file():
+            try:
+                player = QMediaPlayer(self)
+                audio_output = QAudioOutput(self)
+                player.setAudioOutput(audio_output)
+                player.positionChanged.connect(self._on_position_changed)
+                player.durationChanged.connect(self._on_duration_changed)
+                player.playbackStateChanged.connect(self._on_playback_state_changed)
+                player.setSource(QUrl.fromLocalFile(str(self.track.file_path)))
+                self._player = player
+                self._audio_output = audio_output
+                has_media = True
+            except Exception:
+                self._player = None
+                self._audio_output = None
+
+        self.btn_play_pause.setEnabled(has_media)
+        self.btn_play_selection.setEnabled(has_media)
+
+    def _on_play_pause(self) -> None:
+        if self._player is None:
+            return
+        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._player.pause()
+        else:
+            self._preview_end_ms = None
+            self._player.play()
+
+    def _on_play_selection(self) -> None:
+        if self._player is None:
+            return
+        cfg = self.track.slice_config
+        total = self.track.info.duration
+        if cfg.mode == SliceMode.FULL:
+            start_sec = 0.0
+            end_sec = total
+        else:
+            start_sec = max(0.0, cfg.start_sec)
+            end_sec = cfg.effective_end(total)
+
+        start_ms = int(round(start_sec * 1000))
+        end_ms = int(round(end_sec * 1000))
+        if end_ms <= start_ms:
+            self._preview_end_ms = None
+            self._player.setPosition(start_ms)
+            self._player.pause()
+            return
+
+        self._preview_end_ms = end_ms
+        self._player.setPosition(start_ms)
+        self._player.play()
+
+    def _on_range_changed(self, _start_sec: float, end_sec: float) -> None:
+        if self._preview_end_ms is not None:
+            self._preview_end_ms = int(round(end_sec * 1000))
+
+    def _on_duration_changed(self, duration_ms: int) -> None:
+        if duration_ms > 0:
+            self._duration_ms = duration_ms
+        pos_ms = self._player.position() if self._player is not None else 0
+        self._update_position_label(pos_ms)
+
+    def _on_position_changed(self, position_ms: int) -> None:
+        self._update_position_label(position_ms)
+        if self._preview_end_ms is not None and position_ms >= self._preview_end_ms:
+            self._preview_end_ms = None
+            if (
+                self._player is not None
+                and self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+            ):
+                self._player.pause()
+
+    def _on_playback_state_changed(self, state: object) -> None:
+        if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.PlayingState:
+            self.btn_play_pause.setText("⏸ Pause")
+        else:
+            self.btn_play_pause.setText("▶ Play")
+            if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.StoppedState:
+                self._preview_end_ms = None
+
+    def _update_position_label(self, position_ms: int) -> None:
+        total_ms = self._duration_ms
+        if self._player is not None and self._player.duration() > 0:
+            total_ms = self._player.duration()
+        self.lbl_playback_pos.setText(
+            f"{self._format_hhmmss(position_ms)} / {self._format_hhmmss(total_ms)}"
+        )
+
+    @staticmethod
+    def _format_hhmmss(ms: int) -> str:
+        total_secs = max(0, int(ms // 1000))
+        hours = total_secs // 3600
+        mins = (total_secs % 3600) // 60
+        secs = total_secs % 60
+        return f"{hours:02d}:{mins:02d}:{secs:02d}"
+
+    def _release_player(self) -> None:
+        self._preview_end_ms = None
+        if self._player is not None:
+            try:
+                self._player.stop()
+                self._player.setSource(QUrl())
+                self._player.setAudioOutput(None)
+            except Exception:
+                pass
+            self._player.deleteLater()
+            self._player = None
+        if self._audio_output is not None:
+            self._audio_output.deleteLater()
+            self._audio_output = None
+
+    def accept(self) -> None:
+        self._release_player()
+        super().accept()
+
+    def reject(self) -> None:
+        self._release_player()
+        super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._release_player()
+        super().closeEvent(event)
 

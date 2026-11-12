@@ -2,7 +2,10 @@
 
 from whisper_gui.transcriber import (
     Transcriber,
+    delete_cached_model,
     estimate_model_ram_mb,
+    get_model_cache_dir,
+    get_model_cache_size_mb,
     is_model_downloaded_on_disk,
 )
 
@@ -42,3 +45,33 @@ def test_transcriber_load_and_unload_lifecycle():
     transcriber.unload_model()
     assert transcriber.is_loaded is False
     assert transcriber.loaded_model_name is None
+
+
+def test_model_cache_dir_size_and_delete(tmp_path, monkeypatch):
+    fake_cache = tmp_path / "hf_cache"
+    fake_cache.mkdir()
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(fake_cache))
+
+    assert get_model_cache_dir("") is None
+    cache_dir = get_model_cache_dir("tiny")
+    assert cache_dir == fake_cache / "models--Systran--faster-whisper-tiny"
+    assert get_model_cache_size_mb("tiny") == 0.0
+    assert delete_cached_model("tiny") is False
+
+    blobs_dir = cache_dir / "blobs"
+    snap_dir = cache_dir / "snapshots" / "main"
+    blobs_dir.mkdir(parents=True)
+    snap_dir.mkdir(parents=True)
+
+    blob_file = blobs_dir / "abc123"
+    blob_file.write_bytes(b"x" * (1024 * 1024))
+    snap_link = snap_dir / "model.bin"
+    snap_link.symlink_to(blob_file)
+
+    assert is_model_downloaded_on_disk("tiny") is True
+    assert get_model_cache_size_mb("tiny") == 1.0
+
+    assert delete_cached_model("tiny") is True
+    assert not cache_dir.exists()
+    assert is_model_downloaded_on_disk("tiny") is False
+    assert get_model_cache_size_mb("tiny") == 0.0

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from whisper_gui.credentials import load_api_key, store_api_key
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
     PROVIDER_PRESETS,
@@ -409,7 +410,6 @@ class LLMPanel(QWidget):
         settings.setValue("enabled", self.chk_enable.isChecked())
         settings.setValue("provider", self.combo_provider.currentText())
         settings.setValue("model_name", self.combo_model.currentText())
-        settings.setValue("api_key", self.txt_api_key.text().strip())
         settings.setValue("base_url", self.txt_base_url.text().strip())
         settings.setValue("include_raw_docx", self.chk_raw_appendix.isChecked())
         if self._custom_instruction_path:
@@ -417,6 +417,7 @@ class LLMPanel(QWidget):
         else:
             settings.setValue("instruction_file", "")
         settings.endGroup()
+        store_api_key(self.txt_api_key.text().strip(), settings)
 
     def load_settings(self, settings: QSettings) -> None:
         """Load user LLM preferences."""
@@ -424,11 +425,11 @@ class LLMPanel(QWidget):
         enabled = settings.value("enabled", False, type=bool)
         provider = settings.value("provider", "DeepSeek", type=str)
         model = settings.value("model_name", "DeepSeek V4.1 Flash", type=str)
-        api_key = settings.value("api_key", "", type=str)
         base_url = settings.value("base_url", "https://api.deepseek.com/v1", type=str)
         include_raw = settings.value("include_raw_docx", True, type=bool)
         instr_path_str = settings.value("instruction_file", "", type=str)
         settings.endGroup()
+        api_key = load_api_key(settings)
 
         instr_file = Path(instr_path_str) if instr_path_str and Path(instr_path_str).is_file() else None
 

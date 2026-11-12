@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import os
+import shutil
 import sys
 import time
 from collections.abc import Callable
@@ -29,22 +30,64 @@ def estimate_model_ram_mb(model_name: str) -> int:
     return MODEL_RAM_ESTIMATES.get(model_name, 1000)
 
 
-def is_model_downloaded_on_disk(model_name: str) -> bool:
-    """Check if the given Whisper model is already stored locally on disk in HuggingFace cache."""
+def get_model_cache_dir(model_name: str) -> Path | None:
+    """Resolve the HuggingFace cache directory path for the given Whisper model."""
+    if not model_name or not model_name.strip():
+        return None
     try:
         from faster_whisper.utils import _MODELS
         from huggingface_hub.constants import HF_HUB_CACHE
 
         repo_id = _MODELS.get(model_name, model_name)
         folder_name = "models--" + repo_id.replace("/", "--")
-        local_dir = Path(HF_HUB_CACHE) / folder_name
+        return Path(HF_HUB_CACHE) / folder_name
+    except Exception:
+        return None
 
-        if local_dir.is_dir():
+
+def is_model_downloaded_on_disk(model_name: str) -> bool:
+    """Check if the given Whisper model is already stored locally on disk in HuggingFace cache."""
+    try:
+        local_dir = get_model_cache_dir(model_name)
+        if local_dir is not None and local_dir.is_dir():
             snapshots = local_dir / "snapshots"
             if snapshots.is_dir() and any(snapshots.iterdir()):
                 return True
         return False
     except Exception:
+        return False
+
+
+def get_model_cache_size_mb(model_name: str) -> float:
+    """Return total size on disk in MB for the cached model directory."""
+    cache_dir = get_model_cache_dir(model_name)
+    if cache_dir is None or not cache_dir.is_dir():
+        return 0.0
+    total_bytes = 0
+    try:
+        for entry in cache_dir.rglob("*"):
+            if entry.is_file() and not entry.is_symlink():
+                total_bytes += entry.stat().st_size
+    except OSError:
+        return 0.0
+    return round(total_bytes / (1024 * 1024), 2)
+
+
+def delete_cached_model(model_name: str) -> bool:
+    """Safely delete the cached model directory from HuggingFace cache."""
+    cache_dir = get_model_cache_dir(model_name)
+    if cache_dir is None or not cache_dir.is_dir() or cache_dir.is_symlink():
+        return False
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        cache_root = Path(HF_HUB_CACHE).resolve()
+        resolved = cache_dir.resolve()
+        if resolved.parent != cache_root or not resolved.name.startswith("models--"):
+            return False
+        shutil.rmtree(resolved)
+        return True
+    except OSError:
         return False
 
 

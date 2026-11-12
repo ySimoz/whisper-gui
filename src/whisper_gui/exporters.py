@@ -1,4 +1,4 @@
-"""Multi-format exporters for Whisper transcriptions (Word, PDF, Markdown, Plain Text)."""
+"""Multi-format exporters for Whisper transcriptions (Word, PDF, Markdown, Plain Text, SRT, WebVTT)."""
 
 from __future__ import annotations
 
@@ -275,6 +275,89 @@ def export_transcript_to_pdf(
     return out_file
 
 
+def _format_subtitle_timestamp(seconds: float, ms_sep: str = ",") -> str:
+    """Format seconds as HH:MM:SS,mmm (SRT) or HH:MM:SS.mmm (VTT)."""
+    total_ms = int(round(max(0.0, seconds) * 1000))
+    ms = total_ms % 1000
+    total_sec = total_ms // 1000
+    sec = total_sec % 60
+    total_min = total_sec // 60
+    minute = total_min % 60
+    hour = total_min // 60
+    return f"{hour:02d}:{minute:02d}:{sec:02d}{ms_sep}{ms:03d}"
+
+
+def _export_subtitles(
+    output_path: str | Path,
+    track_info: AudioInfo | None = None,
+    slice_config: SliceConfig | None = None,
+    transcription_config: TranscriptionConfig | None = None,
+    result: TranscriptionResult | None = None,
+    *,
+    is_vtt: bool = False,
+) -> Path:
+    """Export transcription cues to SRT or WebVTT subtitle format."""
+    out_file = Path(output_path).resolve()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    cues: list[tuple[float, float, str]] = []
+    if result and result.segments:
+        for seg in result.segments:
+            text = seg.text.strip()
+            if text:
+                cues.append((seg.start, max(seg.start, seg.end), text))
+    elif result and result.full_text and result.full_text.strip():
+        end_sec = 5.0
+        if result.audio_duration > 0:
+            end_sec = result.audio_duration
+        elif track_info and track_info.duration > 0:
+            end_sec = track_info.duration
+        cues.append((0.0, max(0.0, end_sec), result.full_text.strip()))
+
+    ms_sep = "." if is_vtt else ","
+    if is_vtt:
+        blocks = [
+            f"{_format_subtitle_timestamp(start, ms_sep)} --> {_format_subtitle_timestamp(end, ms_sep)}\n{text}"
+            for start, end, text in cues
+        ]
+        content = "WEBVTT\n\n" + ("\n\n".join(blocks) + "\n" if blocks else "")
+    else:
+        blocks = [
+            f"{idx}\n{_format_subtitle_timestamp(start, ms_sep)} --> {_format_subtitle_timestamp(end, ms_sep)}\n{text}"
+            for idx, (start, end, text) in enumerate(cues, start=1)
+        ]
+        content = "\n\n".join(blocks) + "\n" if blocks else ""
+
+    out_file.write_text(content, encoding="utf-8")
+    return out_file
+
+
+def export_transcript_to_srt(
+    output_path: str | Path,
+    track_info: AudioInfo | None = None,
+    slice_config: SliceConfig | None = None,
+    transcription_config: TranscriptionConfig | None = None,
+    result: TranscriptionResult | None = None,
+) -> Path:
+    """Export the transcription to SubRip (.srt) subtitle format."""
+    return _export_subtitles(
+        output_path, track_info, slice_config, transcription_config, result, is_vtt=False
+    )
+
+
+def export_transcript_to_vtt(
+    output_path: str | Path,
+    track_info: AudioInfo | None = None,
+    slice_config: SliceConfig | None = None,
+    transcription_config: TranscriptionConfig | None = None,
+    result: TranscriptionResult | None = None,
+) -> Path:
+    """Export the transcription to WebVTT (.vtt) subtitle format."""
+    return _export_subtitles(
+        output_path, track_info, slice_config, transcription_config, result, is_vtt=True
+    )
+
+
 def export_transcript(
     format_name: str,
     output_path: str | Path,
@@ -286,7 +369,7 @@ def export_transcript(
     """Unified entrypoint for exporting a transcription to any supported format.
 
     Args:
-        format_name: 'docx', 'pdf', 'md', or 'txt'.
+        format_name: 'docx', 'pdf', 'md', 'txt', 'srt', or 'vtt'.
         output_path: Target path for the exported file.
         track_info: Audio track information.
         slice_config: Slicing configuration applied.
@@ -310,5 +393,11 @@ def export_transcript(
         return export_transcript_to_md(output_path, track_info, slice_config, transcription_config, result)
     elif fmt == "txt":
         return export_transcript_to_txt(output_path, track_info, slice_config, transcription_config, result)
+    elif fmt == "srt":
+        return export_transcript_to_srt(output_path, track_info, slice_config, transcription_config, result)
+    elif fmt == "vtt":
+        return export_transcript_to_vtt(output_path, track_info, slice_config, transcription_config, result)
     else:
-        raise ValueError(f"Unsupported export format '{format_name}'. Expected docx, pdf, md, or txt.")
+        raise ValueError(
+            f"Unsupported export format '{format_name}'. Expected docx, pdf, md, txt, srt, or vtt."
+        )

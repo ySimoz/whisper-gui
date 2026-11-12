@@ -49,14 +49,19 @@ class UpdateCheckWorker(QThread):
     """Background worker that queries GitHub Releases without blocking startup."""
 
     update_available = Signal(object)
+    no_update = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
 
     def run(self) -> None:
         release = fetch_latest_release(__version__)
-        if release is not None and not self.isInterruptionRequested():
+        if self.isInterruptionRequested():
+            return
+        if release is not None:
             self.update_available.emit(release)
+        else:
+            self.no_update.emit()
 
 
 class UpdateInstallWorker(QThread):

@@ -17,14 +17,21 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListView,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from whisper_gui import __version__
 from whisper_gui.models import TranscriptionConfig
-from whisper_gui.transcriber import estimate_model_ram_mb, is_model_downloaded_on_disk
+from whisper_gui.transcriber import (
+    delete_cached_model,
+    estimate_model_ram_mb,
+    get_model_cache_size_mb,
+    is_model_downloaded_on_disk,
+)
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
     COLOR_BORDER,
@@ -90,6 +97,7 @@ class SettingsPanel(QWidget):
 
     settings_changed = Signal()
     free_ram_requested = Signal()
+    check_updates_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -121,9 +129,17 @@ class SettingsPanel(QWidget):
         self.combo_model.setFixedHeight(36)
         layout.addWidget(self.combo_model)
 
+        disk_row = QHBoxLayout()
+        disk_row.setSpacing(10)
         self.lbl_disk_status = QLabel("Downloaded locally")
         self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
-        layout.addWidget(self.lbl_disk_status)
+        disk_row.addWidget(self.lbl_disk_status, stretch=1)
+
+        self.btn_delete_model = QPushButton("Delete Cached Model")
+        self.btn_delete_model.setFixedHeight(32)
+        self.btn_delete_model.setEnabled(False)
+        disk_row.addWidget(self.btn_delete_model)
+        layout.addLayout(disk_row)
 
         layout.addSpacing(2)
 
@@ -238,6 +254,8 @@ class SettingsPanel(QWidget):
         self.combo_export_format.addItem("PDF Document (.pdf)", "pdf")
         self.combo_export_format.addItem("Markdown (.md)", "md")
         self.combo_export_format.addItem("Plain Text (.txt)", "txt")
+        self.combo_export_format.addItem("Subtitles (.srt)", "srt")
+        self.combo_export_format.addItem("WebVTT (.vtt)", "vtt")
         self.combo_export_format.setCurrentIndex(0)
         self.combo_export_format.setFixedHeight(36)
         layout.addWidget(self.combo_export_format)
@@ -274,10 +292,22 @@ class SettingsPanel(QWidget):
         self.chk_auto_unload.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED}; background-color: transparent;")
         layout.addWidget(self.chk_auto_unload)
 
+        update_row = QHBoxLayout()
+        update_row.setSpacing(10)
+        self.lbl_version = QLabel(f"Version {__version__}")
+        self.lbl_version.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+        update_row.addWidget(self.lbl_version, stretch=1)
+
+        self.btn_check_updates = QPushButton("Check for Updates")
+        self.btn_check_updates.setFixedHeight(34)
+        update_row.addWidget(self.btn_check_updates)
+        layout.addLayout(update_row)
+
         layout.addStretch()
 
         # Connect signals
         self.combo_model.currentIndexChanged.connect(self._on_model_selected)
+        self.btn_delete_model.clicked.connect(self._on_delete_model_clicked)
         self.combo_lang.currentIndexChanged.connect(self._on_setting_changed)
         self.combo_device.currentIndexChanged.connect(self._on_device_changed)
         self.combo_compute.currentIndexChanged.connect(self._on_setting_changed)
@@ -288,6 +318,7 @@ class SettingsPanel(QWidget):
         self.chk_auto_export.toggled.connect(self._on_setting_changed)
         self.chk_auto_unload.toggled.connect(self._on_setting_changed)
         self.btn_free_ram.clicked.connect(self.free_ram_requested.emit)
+        self.btn_check_updates.clicked.connect(self.check_updates_requested.emit)
 
         self.btn_browse_dir.clicked.connect(self._choose_output_dir)
         self.btn_clear_dir.clicked.connect(self._reset_output_dir)
@@ -301,11 +332,30 @@ class SettingsPanel(QWidget):
         is_downloaded = is_model_downloaded_on_disk(model_name)
         est_mb = estimate_model_ram_mb(model_name)
         if is_downloaded:
-            self.lbl_disk_status.setText(f"Downloaded on disk (Instant load, ~{est_mb}MB RAM)")
+            size_mb = get_model_cache_size_mb(model_name)
+            size_str = f"{size_mb:.0f} MB on disk" if size_mb >= 1 else f"{size_mb:.1f} MB on disk"
+            self.lbl_disk_status.setText(f"Downloaded on disk ({size_str}, ~{est_mb}MB RAM)")
             self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+            self.btn_delete_model.setEnabled(True)
         else:
             self.lbl_disk_status.setText(f"Not cached locally (~{est_mb}MB download)")
             self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+            self.btn_delete_model.setEnabled(False)
+
+    def _on_delete_model_clicked(self) -> None:
+        model_name = str(self.combo_model.currentData())
+        size_mb = get_model_cache_size_mb(model_name)
+        reply = QMessageBox.question(
+            self,
+            "Delete Cached Model",
+            f"Delete cached '{model_name}' model files (~{size_mb:.1f} MB) from disk?\n\n"
+            "You can re-download it anytime by transcribing with this model.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        delete_cached_model(model_name)
+        self._update_disk_status()
 
     def set_ram_status(self, is_loaded: bool, model_name: str | None = None) -> None:
         """Update the RAM display badge and enable/disable the Free RAM button."""

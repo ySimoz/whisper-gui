@@ -73,6 +73,7 @@ hiddenimports = [
     'PySide6',
     'PySide6.QtCore',
     'PySide6.QtGui',
+    'PySide6.QtMultimedia',
     'PySide6.QtWidgets',
     'huggingface_hub',
     'tokenizers',
