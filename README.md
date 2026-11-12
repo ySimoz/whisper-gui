@@ -154,6 +154,21 @@ Standalone binaries are also compiled automatically across all three operating s
 
 ---
 
+## Data & Storage Locations
+
+Settings, cached models, and temporary files are stored outside the application directory so in-app updates preserve your configuration:
+
+| Data | Windows | macOS | Linux |
+|---|---|---|---|
+| **Settings & API key** (`QSettings` — `LLM/api_key`) | Registry: `HKCU\Software\WhisperGUI\WhisperAudioTranscriber` | `~/Library/Preferences/com.whispergui.WhisperAudioTranscriber.plist` | `~/.config/WhisperGUI/WhisperAudioTranscriber.conf` |
+| **Downloaded Whisper models** (`HF_HUB_CACHE`) | `%USERPROFILE%\.cache\huggingface\hub\` | `~/.cache/huggingface/hub/` | `~/.cache/huggingface/hub/` |
+| **Temporary audio slices & update staging** | `%TEMP%` | `$TMPDIR` | `/tmp` |
+| **Exported transcripts** | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) |
+
+> **Security note:** Optional LLM API keys are persisted via Qt's `QSettings` in plain text under your user profile rather than OS keychain/DPAPI encryption. Remove the entry above if you want to wipe saved credentials.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
