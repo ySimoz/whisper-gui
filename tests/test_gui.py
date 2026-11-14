@@ -888,3 +888,24 @@ def test_trim_audio_dialog_missing_file_and_accept_reject(qtbot, tmp_path):
     assert dialog2._player is None
     assert dialog2._audio_output is None
     QApplication.processEvents()
+
+
+def test_dropzone_hover_and_settings_button_fit(qtbot):
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.resize(960, 760)
+    win.show()
+    QApplication.processEvents()
+
+    assert not win.dropzone_card._hovered
+    assert "COLOR_PRIMARY" not in win.dropzone_card.styleSheet()
+    win.dropzone_card.enterEvent(None)
+    assert win.dropzone_card._hovered
+    win.dropzone_card.leaveEvent(None)
+    assert not win.dropzone_card._hovered
+
+    win._open_settings_page()
+    QApplication.processEvents()
+    btn = win.settings_panel.btn_check_updates
+    assert btn.minimumHeight() <= btn.height() <= btn.maximumHeight()
+    assert btn.geometry().bottom() <= win.settings_panel.rect().bottom()

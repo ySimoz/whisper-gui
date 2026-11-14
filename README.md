@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-green?style=flat-square" alt="Python Version" />
   <img src="https://img.shields.io/badge/Engine-faster--whisper-orange?style=flat-square" alt="Engine" />
   <img src="https://img.shields.io/badge/UI-PySide6%20(Qt%206)-purple?style=flat-square" alt="UI" />
-  <img src="https://img.shields.io/badge/Tests-85%20Passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-86%20Passing-brightgreen?style=flat-square" alt="Tests" />
 </p>
 
 ---
@@ -131,7 +131,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Install package with development dependencies
 pip install -e ".[dev]"
 
-# Run full test suite (85 unit & integration tests)
+# Run full test suite (86 unit & integration tests)
 pytest -v
 ```
 

@@ -6,8 +6,8 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -66,19 +66,48 @@ from whisper_gui.worker import PolishWorker, TranscriptionWorker
 
 
 class DropzoneCard(QFrame):
-    """Clickable dropzone card for importing audio files."""
+    """Clickable dropzone card with a continuous rounded dashed border."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._click_callback = None
+        self._hovered = False
+        self.setAttribute(Qt.WA_Hover, True)
 
     def set_click_callback(self, cb) -> None:
         self._click_callback = cb
+
+    def enterEvent(self, event) -> None:
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self._click_callback:
             self._click_callback()
         super().mousePressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 12.0, 12.0)
+
+        fill = QColor(COLOR_BG_RAISED if self._hovered else COLOR_BG_SURFACE)
+        painter.fillPath(path, fill)
+
+        pen = QPen(QColor(COLOR_TEXT_MUTED if self._hovered else COLOR_BORDER_LIGHT), 1.0)
+        pen.setCapStyle(Qt.FlatCap)
+        pen.setDashPattern([5.0, 4.0])
+        painter.setPen(pen)
+        painter.drawPath(path)
 
 
 class MainWindow(QMainWindow):
@@ -259,20 +288,15 @@ class MainWindow(QMainWindow):
         self.dropzone_card.setMinimumHeight(180)
         self.dropzone_card.setCursor(Qt.PointingHandCursor)
         self.dropzone_card.set_click_callback(self.track_list._on_add_files_clicked)
-        self.dropzone_card.setStyleSheet(f"""
-            #dropzone_card {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px dashed {COLOR_BORDER_LIGHT};
-                border-radius: 12px;
-            }}
-            #dropzone_card:hover {{
-                border-color: {COLOR_PRIMARY};
-                background-color: {COLOR_BG_RAISED};
-            }}
-            QLabel {{
+        self.dropzone_card.setStyleSheet("""
+            #dropzone_card {
+                background: transparent;
+                border: none;
+            }
+            QLabel {
                 border: none;
                 background: transparent;
-            }}
+            }
         """)
         drop_layout = QVBoxLayout(self.dropzone_card)
         drop_layout.setContentsMargins(24, 32, 24, 32)

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.2
+
+### What's New
+- **Refined Graphite UI & Icons:** Unified matte Graphite palette (`#141415`–`#232325`), tabular monospace timecodes and metrics, uniform 16px SVG line icons, clean `QComboBox` chevrons, and circular radio indicators.
+- **Improved Layout & Rendering:** Two-row Trim Audio range controls, readable `Track` column sizing in the tracks drawer, and a `4px` borderless progress bar.
+
+### Bug Fixes
+- **Continuous Dropzone Border:** Replaced Qt stylesheet dashed border with continuous `QPainterPath` rendering and neutral Graphite hover state.
+- **Settings Button Clipping:** Fixed `QPushButton` CSS `min-height` overflow so **Check for Updates** and compact action buttons render cleanly without bottom clipping.
+
 ## v0.2.1
 
 ### What's New
