@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -21,15 +21,18 @@ from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
+    COLOR_BG_RAISED,
     COLOR_BG_SURFACE,
     COLOR_BG_WINDOW,
     COLOR_BORDER,
+    COLOR_BORDER_LIGHT,
     COLOR_PRIMARY,
     COLOR_PRIMARY_HOVER,
     COLOR_PRIMARY_TEXT,
     COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    load_ui_icon,
 )
 
 
@@ -80,7 +83,7 @@ class SettingsPageWidget(QWidget):
             #settings_nav_bar {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
+                border-radius: 12px;
             }}
             QLabel {{
                 border: none;
@@ -88,34 +91,19 @@ class SettingsPageWidget(QWidget):
             }}
         """)
         nav_layout = QHBoxLayout(nav_bar)
-        nav_layout.setContentsMargins(16, 0, 16, 0)
-        nav_layout.setSpacing(14)
+        nav_layout.setContentsMargins(12, 0, 12, 0)
+        nav_layout.setSpacing(12)
         nav_layout.setAlignment(Qt.AlignVCenter)
 
-        self.btn_back = QPushButton("← Back to Transcribe")
-        self.btn_back.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                font-weight: 600;
-                font-size: 12px;
-                padding: 6px 16px;
-                border: none;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_PRIMARY_HOVER};
-            }}
-        """)
+        self.btn_back = QPushButton("Back to Transcribe")
+        self.btn_back.setIcon(load_ui_icon("arrow-left"))
+        self.btn_back.setIconSize(QSize(16, 16))
+        self.btn_back.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_back.clicked.connect(self.back_requested.emit)
         nav_layout.addWidget(self.btn_back)
 
         page_title = QLabel("Settings")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        page_title.setFont(title_font)
-        page_title.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700;")
+        page_title.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
         nav_layout.addWidget(page_title)
 
         nav_layout.addStretch()
@@ -150,7 +138,7 @@ class SettingsPageWidget(QWidget):
             #sec1_card {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
+                border-radius: 12px;
             }}
             #sec1_card QCheckBox, #sec1_card QLabel, #sec1_card #settings_panel {{
                 background-color: transparent;
@@ -161,14 +149,14 @@ class SettingsPageWidget(QWidget):
         sec1_layout.addWidget(self.settings_panel)
         content_layout.addWidget(sec1_frame)
 
-        # Section 2: AI Speech Polishing
+        # Section 2: Transcript Polishing
         sec2_frame = QFrame()
         sec2_frame.setObjectName("sec2_card")
         sec2_frame.setStyleSheet(f"""
             #sec2_card {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
+                border-radius: 12px;
             }}
             #sec2_card QCheckBox, #sec2_card QLabel, #sec2_card #llm_panel, #sec2_card #llm_controls_container {{
                 background-color: transparent;

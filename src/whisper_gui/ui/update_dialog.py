@@ -31,8 +31,10 @@ from whisper_gui.ui.theme import (
     COLOR_PRIMARY_HOVER,
     COLOR_PRIMARY_PRESSED,
     COLOR_PRIMARY_TEXT,
+    COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    fixed_mono_font,
 )
 from whisper_gui.updater import (
     ReleaseInfo,
@@ -145,30 +147,27 @@ class UpdateDialog(QDialog):
 
         header_row = QHBoxLayout()
         title = QLabel("New Version Available")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title.setFont(title_font)
+        title.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
         header_row.addWidget(title)
         header_row.addStretch()
 
         version_badge = QLabel(f"v{__version__} → {self.release.tag_name}")
+        version_badge.setFont(fixed_mono_font(12))
         version_badge.setStyleSheet(f"""
             QLabel {{
                 background-color: {COLOR_BG_SURFACE};
-                color: {COLOR_PRIMARY};
+                color: {COLOR_TEXT_MAIN};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                padding: 4px 10px;
-                font-weight: 600;
-                font-size: 12px;
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-weight: 500;
             }}
         """)
         header_row.addWidget(version_badge)
         layout.addLayout(header_row)
 
         changelog_label = QLabel("Changelog")
-        changelog_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-weight: 600; font-size: 12px;")
+        changelog_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-weight: 500; font-size: 12px;")
         layout.addWidget(changelog_label)
 
         self.txt_changelog = QTextBrowser(self)
@@ -178,8 +177,8 @@ class UpdateDialog(QDialog):
                 background-color: {COLOR_BG_INPUT};
                 color: {COLOR_TEXT_MAIN};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 10px 12px;
+                border-radius: 8px;
+                padding: 12px;
                 font-size: 12px;
             }}
         """)
@@ -194,6 +193,8 @@ class UpdateDialog(QDialog):
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(4)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
 
@@ -212,7 +213,9 @@ class UpdateDialog(QDialog):
                 background-color: {COLOR_PRIMARY};
                 color: {COLOR_PRIMARY_TEXT};
                 border: 1px solid {COLOR_PRIMARY};
-                padding: 7px 16px;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: 500;
             }}
             QPushButton:hover {{
                 background-color: {COLOR_PRIMARY_HOVER};
@@ -222,9 +225,9 @@ class UpdateDialog(QDialog):
                 background-color: {COLOR_PRIMARY_PRESSED};
             }}
             QPushButton:disabled {{
-                background-color: #1E3A5F;
-                color: #94A3B8;
-                border-color: #1E3A5F;
+                background-color: {COLOR_BG_SURFACE};
+                color: {COLOR_TEXT_HINT};
+                border-color: {COLOR_BORDER};
             }}
         """)
         self.btn_update.clicked.connect(self._on_update_clicked)

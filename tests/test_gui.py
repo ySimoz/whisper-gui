@@ -316,7 +316,7 @@ def test_lateral_tracks_drawer(qtbot):
     assert not window.tracks_drawer.isVisible()
     assert window.dropzone_card.isVisible()
     assert window.lbl_drop_title.text() == "Import File"
-    assert window.btn_toggle_drawer.text() == "☰ Tracks (0)"
+    assert window.btn_toggle_drawer.text() == "Tracks (0)"
     assert window.btn_start.text() == "Transcribe Audio"
 
     # Toggle drawer open
@@ -325,7 +325,7 @@ def test_lateral_tracks_drawer(qtbot):
     assert window.btn_toggle_drawer.isChecked()
 
     # Close drawer via close button
-    close_btns = [b for b in window.tracks_drawer.findChildren(object) if hasattr(b, "text") and b.text() == "✕"]
+    close_btns = [b for b in window.tracks_drawer.findChildren(object) if hasattr(b, "objectName") and b.objectName() == "btn_close_drawer"]
     assert len(close_btns) == 1
     close_btns[0].click()
     assert not window.tracks_drawer.isVisible()
@@ -340,7 +340,7 @@ def test_lateral_tracks_drawer(qtbot):
     window.track_list._refresh_table()
     window.track_list.track_count_changed.emit(1)
 
-    assert window.btn_toggle_drawer.text() == "☰ Tracks (1)"
+    assert window.btn_toggle_drawer.text() == "Tracks (1)"
     assert window.btn_start.text() == "Transcribe Track"
     assert window.lbl_active_name.text() == "meeting1.mp3"
 
@@ -353,7 +353,7 @@ def test_lateral_tracks_drawer(qtbot):
     window.track_list._refresh_table()
     window.track_list.track_count_changed.emit(2)
 
-    assert window.btn_toggle_drawer.text() == "☰ Tracks (2)"
+    assert window.btn_toggle_drawer.text() == "Tracks (2)"
     assert window.btn_start.text() == "Transcribe All (2 Tracks)"
     assert window.tracks_drawer.isVisible()
     assert window.btn_active_drawer.isVisible()
@@ -440,7 +440,7 @@ def test_transcript_view_load_track(qtbot, tmp_path):
 
     # Load None -> Idle and disabled actions
     view.load_track(None, cfg)
-    assert view.lbl_status.text() == "Status: Idle"
+    assert view.lbl_status.text() == "Idle"
     assert view.txt_display.toPlainText() == ""
     assert not view.btn_export.isEnabled()
     assert not view.btn_open_folder.isEnabled()
@@ -538,7 +538,7 @@ def test_transcript_view_load_track(qtbot, tmp_path):
     assert not view.btn_export.isEnabled()
     assert not view.btn_open_folder.isEnabled()
     assert not view.btn_view_polished.isEnabled()
-    assert view.lbl_status.text() == "Status: Queued"
+    assert view.lbl_status.text() == "Queued"
 
     # Reload polished track -> segments and polished text are still intact
     view.load_track(polished_track, cfg)
@@ -608,7 +608,7 @@ def test_main_window_track_switching(qtbot, tmp_path):
     assert window.transcript_view.txt_display.toPlainText() == ""
     assert not window.transcript_view.btn_export.isEnabled()
     assert not window.transcript_view.btn_open_folder.isEnabled()
-    assert window.transcript_view.lbl_status.text() == "Status: Queued"
+    assert window.transcript_view.lbl_status.text() == "Queued"
 
     window.track_list.table.selectRow(0)
     assert window._active_track is t1
@@ -619,14 +619,14 @@ def test_main_window_track_switching(qtbot, tmp_path):
     window._on_worker_track_started(t3.id)
     assert window._active_track is t3
     assert window.transcript_view.txt_display.toPlainText() == ""
-    assert window.transcript_view.lbl_status.text() == "Status: Transcribing three.mp3..."
+    assert window.transcript_view.lbl_status.text() == "Transcribing three.mp3..."
 
     window._on_worker_segment_received(t1.id, TranscriptSegment(start=0.0, end=1.0, text="Wrong track"))
     window._on_worker_progress_updated(t1.id, 99, "99%")
     window._on_worker_track_error(t1.id, "Ignored error")
     assert "Wrong track" not in window.transcript_view.txt_display.toPlainText()
     assert window.transcript_view.progress_bar.value() == 0
-    assert window.transcript_view.lbl_status.text() == "Status: Transcribing three.mp3..."
+    assert window.transcript_view.lbl_status.text() == "Transcribing three.mp3..."
 
     window._on_worker_segment_received(t3.id, TranscriptSegment(start=0.0, end=1.0, text="Track three live"))
     window._on_worker_progress_updated(t3.id, 50, "15.0s / 30.0s (50%)")
@@ -837,28 +837,28 @@ def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path):
     dialog = TrimAudioDialog(track)
     qtbot.addWidget(dialog)
 
-    assert dialog.btn_play_pause.text() == "▶ Play"
-    assert dialog.btn_play_selection.text() == "▶ Preview Range"
+    assert dialog.btn_play_pause.text() == "Play"
+    assert dialog.btn_play_selection.text() == "Preview Range"
     assert dialog.lbl_playback_pos.text() == "00:00:00 / 00:00:00"
     assert dialog.btn_play_pause.isEnabled()
     assert dialog.btn_play_selection.isEnabled()
     assert dialog._player is not None
 
     dialog.btn_play_pause.click()
-    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "⏸ Pause", timeout=2000)
+    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "Pause", timeout=2000)
     dialog.btn_play_pause.click()
-    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "▶ Play", timeout=2000)
+    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "Play", timeout=2000)
 
     track.slice_config = SliceConfig(mode=SliceMode.RANGE, start_sec=1.0, end_sec=2.0)
     dialog.selector.set_track(track)
     dialog.btn_play_selection.click()
     assert dialog._preview_end_ms == 2000
-    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "⏸ Pause", timeout=2000)
+    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "Pause", timeout=2000)
 
     dialog._on_position_changed(2000)
     assert dialog._preview_end_ms is None
     assert "00:00:02" in dialog.lbl_playback_pos.text()
-    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "▶ Play", timeout=2000)
+    qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "Play", timeout=2000)
 
     dialog.close()
     assert dialog._player is None

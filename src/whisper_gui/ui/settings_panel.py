@@ -41,7 +41,11 @@ from whisper_gui.ui.theme import (
     COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    COLOR_TEXT_SECONDARY,
 )
+
+_SECTION_LABEL_STYLE = f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 500; padding: 0;"
+_FIELD_LABEL_STYLE = f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; font-weight: 500; padding: 0;"
 
 SUPPORTED_LANGUAGES = [
     ("Auto-detect", None),
@@ -109,16 +113,16 @@ class SettingsPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Section 1: Speech Recognition
         sec_rec = QLabel("Speech Recognition")
-        sec_rec.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        sec_rec.setStyleSheet(_SECTION_LABEL_STYLE)
         layout.addWidget(sec_rec)
 
         lbl_model = QLabel("Whisper Model")
-        lbl_model.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_model.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_model)
 
         self.combo_model = QComboBox()
@@ -130,7 +134,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(self.combo_model)
 
         disk_row = QHBoxLayout()
-        disk_row.setSpacing(10)
+        disk_row.setSpacing(12)
         self.lbl_disk_status = QLabel("Downloaded locally")
         self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         disk_row.addWidget(self.lbl_disk_status, stretch=1)
@@ -141,10 +145,10 @@ class SettingsPanel(QWidget):
         disk_row.addWidget(self.btn_delete_model)
         layout.addLayout(disk_row)
 
-        layout.addSpacing(2)
+        layout.addSpacing(4)
 
         lbl_lang = QLabel("Language")
-        lbl_lang.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_lang.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_lang)
 
         self.combo_lang = QComboBox()
@@ -155,14 +159,14 @@ class SettingsPanel(QWidget):
         self.combo_lang.setFixedHeight(36)
         layout.addWidget(self.combo_lang)
 
-        layout.addSpacing(2)
+        layout.addSpacing(4)
 
         lbl_dev = QLabel("Inference Device & Compute Type")
-        lbl_dev.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_dev.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_dev)
 
         dev_row = QHBoxLayout()
-        dev_row.setSpacing(10)
+        dev_row.setSpacing(12)
         self.combo_device = QComboBox()
         self.combo_device.setView(QListView())
         if sys.platform == "darwin":
@@ -184,10 +188,10 @@ class SettingsPanel(QWidget):
         dev_row.addWidget(self.combo_compute, stretch=2)
         layout.addLayout(dev_row)
 
-        layout.addSpacing(2)
+        layout.addSpacing(4)
 
         lbl_threads = QLabel("CPU Threads")
-        lbl_threads.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_threads.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_threads)
 
         max_cpu = os.cpu_count() or 6
@@ -218,11 +222,11 @@ class SettingsPanel(QWidget):
 
         # Section 2: Storage & Output
         sec_out = QLabel("Storage & Output")
-        sec_out.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        sec_out.setStyleSheet(_SECTION_LABEL_STYLE)
         layout.addWidget(sec_out)
 
         lbl_out = QLabel("Output Folder")
-        lbl_out.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_out.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_out)
 
         out_row = QHBoxLayout()
@@ -233,7 +237,7 @@ class SettingsPanel(QWidget):
         self.txt_output_dir.setFixedHeight(36)
         out_row.addWidget(self.txt_output_dir, stretch=1)
 
-        self.btn_browse_dir = QPushButton("Browse...")
+        self.btn_browse_dir = QPushButton("Browse")
         self.btn_browse_dir.setFixedHeight(36)
         out_row.addWidget(self.btn_browse_dir)
 
@@ -242,10 +246,10 @@ class SettingsPanel(QWidget):
         out_row.addWidget(self.btn_clear_dir)
         layout.addLayout(out_row)
 
-        layout.addSpacing(6)
+        layout.addSpacing(4)
 
         lbl_fmt = QLabel("Default Export Format")
-        lbl_fmt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_fmt.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_fmt)
 
         self.combo_export_format = QComboBox()
@@ -269,21 +273,21 @@ class SettingsPanel(QWidget):
 
         # Section 3: Memory & Performance
         sec_mem = QLabel("System & Memory")
-        sec_mem.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        sec_mem.setStyleSheet(_SECTION_LABEL_STYLE)
         layout.addWidget(sec_mem)
 
         lbl_ram = QLabel("Model Memory Usage")
-        lbl_ram.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_ram.setStyleSheet(_FIELD_LABEL_STYLE)
         layout.addWidget(lbl_ram)
 
         ram_row = QHBoxLayout()
-        ram_row.setSpacing(10)
+        ram_row.setSpacing(12)
         self.lbl_ram_status = QLabel("Model in RAM: None (0 MB)")
         self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
         ram_row.addWidget(self.lbl_ram_status, stretch=1)
 
         self.btn_free_ram = QPushButton("Unload Model")
-        self.btn_free_ram.setFixedHeight(34)
+        self.btn_free_ram.setFixedHeight(32)
         self.btn_free_ram.setEnabled(False)
         ram_row.addWidget(self.btn_free_ram)
         layout.addLayout(ram_row)
@@ -293,13 +297,13 @@ class SettingsPanel(QWidget):
         layout.addWidget(self.chk_auto_unload)
 
         update_row = QHBoxLayout()
-        update_row.setSpacing(10)
+        update_row.setSpacing(12)
         self.lbl_version = QLabel(f"Version {__version__}")
         self.lbl_version.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
         update_row.addWidget(self.lbl_version, stretch=1)
 
         self.btn_check_updates = QPushButton("Check for Updates")
-        self.btn_check_updates.setFixedHeight(34)
+        self.btn_check_updates.setFixedHeight(32)
         update_row.addWidget(self.btn_check_updates)
         layout.addLayout(update_row)
 
@@ -362,11 +366,11 @@ class SettingsPanel(QWidget):
         if is_loaded and model_name:
             est_mb = estimate_model_ram_mb(model_name)
             self.lbl_ram_status.setText(f"Model in Memory: {model_name} (~{est_mb} MB)")
-            self.lbl_ram_status.setStyleSheet(f"font-size: 11px; color: {COLOR_PRIMARY}; font-weight: bold;")
+            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MAIN}; font-weight: 500;")
             self.btn_free_ram.setEnabled(True)
         else:
             self.lbl_ram_status.setText("Model in Memory: None (0 MB)")
-            self.lbl_ram_status.setStyleSheet(f"font-size: 11px; color: {COLOR_TEXT_MUTED};")
+            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
             self.btn_free_ram.setEnabled(False)
 
     def _on_device_changed(self) -> None:

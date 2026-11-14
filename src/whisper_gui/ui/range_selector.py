@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTime, QUrl, Qt, Signal
+from PySide6.QtCore import QSize, QTime, QUrl, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -38,6 +38,8 @@ from whisper_gui.ui.theme import (
     COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    fixed_mono_font,
+    load_ui_icon,
 )
 
 
@@ -57,26 +59,29 @@ class RangeSelectorWidget(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(6)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        # Compact top control bar: Mode radio + Start/End inputs + Duration
+        # Two-row control card: Mode + duration on row 1, Start/End timecodes on row 2
         top_bar = QFrame()
         top_bar.setObjectName("range_top_bar")
         top_bar.setStyleSheet(f"""
             #range_top_bar {{
                 background-color: {COLOR_BG_INPUT};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
+                border-radius: 8px;
             }}
             QLabel {{
                 border: none;
                 background: transparent;
             }}
         """)
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(10, 6, 10, 6)
-        top_layout.setSpacing(12)
+        top_vbox = QVBoxLayout(top_bar)
+        top_vbox.setContentsMargins(12, 12, 12, 12)
+        top_vbox.setSpacing(8)
+
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(16)
 
         self.btn_group_mode = QButtonGroup(self)
         self.radio_full = QRadioButton("Full Audio")
@@ -86,51 +91,60 @@ class RangeSelectorWidget(QWidget):
         self.btn_group_mode.addButton(self.radio_full, 0)
         self.btn_group_mode.addButton(self.radio_custom, 1)
 
-        top_layout.addWidget(self.radio_full)
-        top_layout.addWidget(self.radio_custom)
-        top_layout.addSpacing(8)
+        mode_row.addWidget(self.radio_full)
+        mode_row.addWidget(self.radio_custom)
+        mode_row.addStretch()
 
-        lbl_start = QLabel("Start:")
-        lbl_start.setStyleSheet(f"font-weight: 500; color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        top_layout.addWidget(lbl_start)
+        self.lbl_selected_length = QLabel("Selected: 00:00:00")
+        self.lbl_selected_length.setFont(fixed_mono_font(12))
+        self.lbl_selected_length.setStyleSheet(f"color: {COLOR_TEXT_MAIN};")
+        mode_row.addWidget(self.lbl_selected_length)
+        top_vbox.addLayout(mode_row)
+
+        time_row = QHBoxLayout()
+        time_row.setSpacing(12)
+
+        lbl_start = QLabel("Start")
+        lbl_start.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        time_row.addWidget(lbl_start)
 
         self.time_start = QTimeEdit()
         self.time_start.setDisplayFormat("HH:mm:ss")
         self.time_start.setTime(QTime(0, 0, 0))
-        self.time_start.setMaximumWidth(85)
-        top_layout.addWidget(self.time_start)
+        self.time_start.setMinimumWidth(116)
+        self.time_start.setFont(fixed_mono_font(12))
+        time_row.addWidget(self.time_start)
 
-        lbl_end = QLabel("End:")
-        lbl_end.setStyleSheet(f"font-weight: 500; color: {COLOR_TEXT_MUTED}; font-size: 11px;")
-        top_layout.addWidget(lbl_end)
+        time_row.addSpacing(4)
+
+        lbl_end = QLabel("End")
+        lbl_end.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        time_row.addWidget(lbl_end)
 
         self.time_end = QTimeEdit()
         self.time_end.setDisplayFormat("HH:mm:ss")
         self.time_end.setTime(QTime(0, 0, 0))
-        self.time_end.setMaximumWidth(85)
-        top_layout.addWidget(self.time_end)
+        self.time_end.setMinimumWidth(116)
+        self.time_end.setFont(fixed_mono_font(12))
+        time_row.addWidget(self.time_end)
 
-        top_layout.addStretch()
-
-        self.lbl_selected_length = QLabel("Selected: 00:00:00")
-        self.lbl_selected_length.setStyleSheet(
-            f"font-weight: 600; color: {COLOR_TEXT_MAIN}; font-size: 12px;"
-        )
-        top_layout.addWidget(self.lbl_selected_length)
+        time_row.addStretch()
+        top_vbox.addLayout(time_row)
 
         layout.addWidget(top_bar)
 
-        # Bottom row: Slider + position info
+        # Slider + position info
         slider_layout = QVBoxLayout()
-        slider_layout.setSpacing(2)
+        slider_layout.setSpacing(4)
 
         self.slider_range = QSlider(Qt.Horizontal)
         self.slider_range.setRange(0, 1000)
         self.slider_range.setValue(1000)
         slider_layout.addWidget(self.slider_range)
 
-        self.lbl_slider_info = QLabel("Position: 00:00:00 / 00:00:00")
-        self.lbl_slider_info.setStyleSheet(f"color: {COLOR_TEXT_HINT}; font-size: 10px;")
+        self.lbl_slider_info = QLabel("Range: 00:00:00 / Total: 00:00:00")
+        self.lbl_slider_info.setFont(fixed_mono_font(11))
+        self.lbl_slider_info.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         slider_layout.addWidget(self.lbl_slider_info)
 
         layout.addLayout(slider_layout)
@@ -296,14 +310,14 @@ class TrimAudioDialog(QDialog):
 
         self.setWindowTitle(f"Trim Audio - {track.info.filename}")
         self.setMinimumWidth(520)
-        self.resize(560, 270)
+        self.resize(560, 300)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel(f"Trim: {track.info.filename}")
-        title.setStyleSheet(f"font-weight: 600; font-size: 13px; color: {COLOR_TEXT_MAIN};")
+        title = QLabel(f"Trim {track.info.filename}")
+        title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {COLOR_TEXT_MAIN};")
         layout.addWidget(title)
 
         self.selector = RangeSelectorWidget(self)
@@ -317,7 +331,7 @@ class TrimAudioDialog(QDialog):
             #trim_preview_bar {{
                 background-color: {COLOR_BG_INPUT};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
+                border-radius: 8px;
             }}
             QLabel {{
                 border: none;
@@ -325,23 +339,26 @@ class TrimAudioDialog(QDialog):
             }}
         """)
         preview_layout = QHBoxLayout(preview_bar)
-        preview_layout.setContentsMargins(10, 6, 10, 6)
+        preview_layout.setContentsMargins(12, 8, 12, 8)
         preview_layout.setSpacing(8)
 
-        self.btn_play_pause = QPushButton("▶ Play")
+        self.btn_play_pause = QPushButton("Play")
+        self.btn_play_pause.setIcon(load_ui_icon("play"))
+        self.btn_play_pause.setIconSize(QSize(14, 14))
         self.btn_play_pause.clicked.connect(self._on_play_pause)
         preview_layout.addWidget(self.btn_play_pause)
 
-        self.btn_play_selection = QPushButton("▶ Preview Range")
+        self.btn_play_selection = QPushButton("Preview Range")
+        self.btn_play_selection.setIcon(load_ui_icon("play"))
+        self.btn_play_selection.setIconSize(QSize(14, 14))
         self.btn_play_selection.clicked.connect(self._on_play_selection)
         preview_layout.addWidget(self.btn_play_selection)
 
         preview_layout.addStretch()
 
         self.lbl_playback_pos = QLabel("00:00:00 / 00:00:00")
-        self.lbl_playback_pos.setStyleSheet(
-            f"color: {COLOR_TEXT_MUTED}; font-size: 11px; font-weight: 500;"
-        )
+        self.lbl_playback_pos.setFont(fixed_mono_font(11))
+        self.lbl_playback_pos.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         preview_layout.addWidget(self.lbl_playback_pos)
 
         layout.addWidget(preview_bar)
@@ -431,9 +448,11 @@ class TrimAudioDialog(QDialog):
 
     def _on_playback_state_changed(self, state: object) -> None:
         if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.PlayingState:
-            self.btn_play_pause.setText("⏸ Pause")
+            self.btn_play_pause.setText("Pause")
+            self.btn_play_pause.setIcon(load_ui_icon("pause"))
         else:
-            self.btn_play_pause.setText("▶ Play")
+            self.btn_play_pause.setText("Play")
+            self.btn_play_pause.setIcon(load_ui_icon("play"))
             if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.StoppedState:
                 self._preview_end_ms = None
 

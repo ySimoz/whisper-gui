@@ -40,6 +40,7 @@ from whisper_gui.ui.settings_page import SettingsPageWidget
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
+    COLOR_BG_RAISED,
     COLOR_BG_SURFACE,
     COLOR_BG_WINDOW,
     COLOR_BORDER,
@@ -55,6 +56,8 @@ from whisper_gui.ui.theme import (
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
     GLOBAL_STYLESHEET,
+    fixed_mono_font,
+    load_ui_icon,
 )
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
@@ -125,7 +128,7 @@ class MainWindow(QMainWindow):
         # ---------------- Page 0: Transcribe Workspace ----------------
         self.page_transcribe = QWidget()
         transcribe_vbox = QVBoxLayout(self.page_transcribe)
-        transcribe_vbox.setSpacing(10)
+        transcribe_vbox.setSpacing(12)
         transcribe_vbox.setContentsMargins(16, 12, 16, 12)
 
         # 1. Header Bar
@@ -136,7 +139,7 @@ class MainWindow(QMainWindow):
             #main_header {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
+                border-radius: 12px;
             }}
             QLabel {{
                 border: none;
@@ -144,23 +147,25 @@ class MainWindow(QMainWindow):
             }}
         """)
         header_layout = QHBoxLayout(header_frame)
-        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_layout.setContentsMargins(12, 0, 12, 0)
         header_layout.setSpacing(12)
         header_layout.setAlignment(Qt.AlignVCenter)
 
         # Left side: Lateral Drawer Toggle + Title + Model Badge
-        self.btn_toggle_drawer = QPushButton("☰ Tracks (0)")
+        self.btn_toggle_drawer = QPushButton("Tracks (0)")
+        self.btn_toggle_drawer.setIcon(load_ui_icon("tracks"))
+        self.btn_toggle_drawer.setIconSize(QSize(16, 16))
         self.btn_toggle_drawer.setCheckable(True)
         self.btn_toggle_drawer.setStyleSheet(f"""
             QPushButton {{
-                padding: 6px 14px;
+                padding: 6px 12px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 500;
             }}
             QPushButton:checked {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                border-color: {COLOR_PRIMARY};
+                background-color: {COLOR_BG_RAISED};
+                color: {COLOR_TEXT_MAIN};
+                border-color: {COLOR_BORDER_LIGHT};
             }}
         """)
         self.btn_toggle_drawer.clicked.connect(self._toggle_tracks_drawer)
@@ -168,27 +173,20 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.btn_toggle_drawer)
 
         title_lbl = QLabel("Whisper GUI")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_lbl.setFont(title_font)
-        title_lbl.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700;")
+        title_lbl.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
         header_layout.addWidget(title_lbl)
 
         self.lbl_model_badge = QLabel("Model: large-v3-turbo")
-        self.lbl_model_badge.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: 500;")
+        self.lbl_model_badge.setFont(fixed_mono_font(12))
+        self.lbl_model_badge.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         header_layout.addWidget(self.lbl_model_badge)
 
         header_layout.addStretch()
 
-        self.btn_open_settings = QPushButton("⚙ Settings")
-        self.btn_open_settings.setStyleSheet("""
-            QPushButton {
-                padding: 6px 14px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-        """)
+        self.btn_open_settings = QPushButton("Settings")
+        self.btn_open_settings.setIcon(load_ui_icon("settings"))
+        self.btn_open_settings.setIconSize(QSize(16, 16))
+        self.btn_open_settings.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_open_settings.clicked.connect(self._open_settings_page)
         header_layout.addWidget(self.btn_open_settings)
 
@@ -207,7 +205,7 @@ class MainWindow(QMainWindow):
             #tracks_drawer {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
+                border-radius: 12px;
             }}
             QLabel {{
                 border: none;
@@ -218,24 +216,28 @@ class MainWindow(QMainWindow):
 
         drawer_vbox = QVBoxLayout(self.tracks_drawer)
         drawer_vbox.setContentsMargins(12, 12, 12, 12)
-        drawer_vbox.setSpacing(10)
+        drawer_vbox.setSpacing(12)
 
         drawer_hdr = QHBoxLayout()
         drawer_hdr.setSpacing(8)
         self.lbl_drawer_title = QLabel("Tracks")
-        self.lbl_drawer_title.setStyleSheet(f"font-weight: 700; font-size: 14px; color: {COLOR_TEXT_MAIN};")
+        self.lbl_drawer_title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {COLOR_TEXT_MAIN};")
         drawer_hdr.addWidget(self.lbl_drawer_title)
 
         self.lbl_drawer_count = QLabel("0 tracks")
-        self.lbl_drawer_count.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        self.lbl_drawer_count.setFont(fixed_mono_font(11))
+        self.lbl_drawer_count.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         drawer_hdr.addWidget(self.lbl_drawer_count)
 
         drawer_hdr.addStretch()
 
-        btn_close_drawer = QPushButton("✕")
-        btn_close_drawer.setFixedSize(24, 24)
+        btn_close_drawer = QPushButton()
+        btn_close_drawer.setObjectName("btn_close_drawer")
+        btn_close_drawer.setIcon(load_ui_icon("close"))
+        btn_close_drawer.setIconSize(QSize(14, 14))
+        btn_close_drawer.setFixedSize(28, 28)
         btn_close_drawer.setToolTip("Close drawer")
-        btn_close_drawer.setStyleSheet("padding: 0; font-size: 12px; font-weight: 700;")
+        btn_close_drawer.setStyleSheet("padding: 0px;")
         btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
         drawer_hdr.addWidget(btn_close_drawer)
         drawer_vbox.addLayout(drawer_hdr)
@@ -249,7 +251,7 @@ class MainWindow(QMainWindow):
         self.center_widget = QWidget()
         center_layout = QVBoxLayout(self.center_widget)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(10)
+        center_layout.setSpacing(12)
 
         # Dropzone (shown when 0 tracks loaded)
         self.dropzone_card = DropzoneCard()
@@ -260,12 +262,12 @@ class MainWindow(QMainWindow):
         self.dropzone_card.setStyleSheet(f"""
             #dropzone_card {{
                 background-color: {COLOR_BG_SURFACE};
-                border: 2px dashed {COLOR_BORDER_LIGHT};
-                border-radius: 8px;
+                border: 1px dashed {COLOR_BORDER_LIGHT};
+                border-radius: 12px;
             }}
             #dropzone_card:hover {{
                 border-color: {COLOR_PRIMARY};
-                background-color: #243247;
+                background-color: {COLOR_BG_RAISED};
             }}
             QLabel {{
                 border: none;
@@ -278,7 +280,7 @@ class MainWindow(QMainWindow):
         drop_layout.setAlignment(Qt.AlignCenter)
 
         self.lbl_drop_title = QLabel("Import File")
-        self.lbl_drop_title.setStyleSheet(f"font-size: 16px; font-weight: 600; color: {COLOR_TEXT_MAIN};")
+        self.lbl_drop_title.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {COLOR_TEXT_MAIN};")
         self.lbl_drop_title.setAlignment(Qt.AlignCenter)
         drop_layout.addWidget(self.lbl_drop_title)
 
@@ -286,7 +288,7 @@ class MainWindow(QMainWindow):
         self.lbl_drop_icon.setAlignment(Qt.AlignCenter)
         upload_icon_path = get_asset_path("upload_icon.svg")
         if upload_icon_path:
-            self.lbl_drop_icon.setPixmap(QIcon(str(upload_icon_path)).pixmap(QSize(56, 56)))
+            self.lbl_drop_icon.setPixmap(QIcon(str(upload_icon_path)).pixmap(QSize(48, 48)))
         drop_layout.addWidget(self.lbl_drop_icon)
 
         center_layout.addWidget(self.dropzone_card)
@@ -298,7 +300,7 @@ class MainWindow(QMainWindow):
             #active_card {{
                 background-color: {COLOR_BG_SURFACE};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
+                border-radius: 12px;
             }}
             QLabel {{
                 border: none;
@@ -306,23 +308,25 @@ class MainWindow(QMainWindow):
             }}
         """)
         card_layout = QVBoxLayout(self.active_card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(16, 16, 16, 16)
         card_layout.setSpacing(12)
 
         # Track info header
         track_row = QHBoxLayout()
-        track_row.setSpacing(10)
+        track_row.setSpacing(12)
 
         self.lbl_active_name = QLabel("Track Name")
-        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLOR_TEXT_MAIN};")
+        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {COLOR_TEXT_MAIN};")
         track_row.addWidget(self.lbl_active_name, stretch=1)
 
         self.lbl_active_meta = QLabel("00:00 • 0 MB")
-        self.lbl_active_meta.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self.lbl_active_meta.setFont(fixed_mono_font(12))
+        self.lbl_active_meta.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         track_row.addWidget(self.lbl_active_meta)
 
         self.lbl_active_slice = QLabel("Full Audio")
-        self.lbl_active_slice.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; font-weight: 500;")
+        self.lbl_active_slice.setFont(fixed_mono_font(12))
+        self.lbl_active_slice.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         track_row.addWidget(self.lbl_active_slice)
         card_layout.addLayout(track_row)
 
@@ -330,20 +334,24 @@ class MainWindow(QMainWindow):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(12)
 
-        self.btn_open_trim = QPushButton("✂ Trim Audio")
-        self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 14px;")
+        self.btn_open_trim = QPushButton("Trim Audio")
+        self.btn_open_trim.setIcon(load_ui_icon("scissors"))
+        self.btn_open_trim.setIconSize(QSize(16, 16))
+        self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 12px;")
         self.btn_open_trim.clicked.connect(self._open_trim_dialog)
         actions_row.addWidget(self.btn_open_trim)
 
-        self.chk_polish_sync = QCheckBox("Polish with AI")
-        self.chk_polish_sync.setStyleSheet("font-weight: 600; background-color: transparent;")
+        self.chk_polish_sync = QCheckBox("Auto-polish transcript")
+        self.chk_polish_sync.setStyleSheet("font-weight: 400; background-color: transparent;")
         self.chk_polish_sync.toggled.connect(self._on_polish_sync_toggled)
         actions_row.addWidget(self.chk_polish_sync)
 
         actions_row.addStretch()
 
-        self.btn_active_drawer = QPushButton("☰ View All Tracks")
-        self.btn_active_drawer.setStyleSheet("padding: 5px 12px; font-size: 12px;")
+        self.btn_active_drawer = QPushButton("View All Tracks")
+        self.btn_active_drawer.setIcon(load_ui_icon("tracks"))
+        self.btn_active_drawer.setIconSize(QSize(16, 16))
+        self.btn_active_drawer.setStyleSheet("padding: 6px 12px; font-size: 12px;")
         self.btn_active_drawer.clicked.connect(self._open_tracks_drawer)
         actions_row.addWidget(self.btn_active_drawer)
 
@@ -361,17 +369,17 @@ class MainWindow(QMainWindow):
 
         # Primary transcribe button bar
         transcribe_row = QHBoxLayout()
-        transcribe_row.setSpacing(10)
+        transcribe_row.setSpacing(8)
 
         self.btn_start = QPushButton("Transcribe Audio")
-        self.btn_start.setFixedHeight(42)
+        self.btn_start.setFixedHeight(40)
         self.btn_start.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_PRIMARY};
                 color: {COLOR_PRIMARY_TEXT};
-                font-weight: 700;
+                font-weight: 500;
                 font-size: 13px;
-                border-radius: 4px;
+                border-radius: 8px;
                 border: none;
             }}
             QPushButton:hover {{
@@ -390,16 +398,16 @@ class MainWindow(QMainWindow):
         transcribe_row.addWidget(self.btn_start, stretch=1)
 
         self.btn_stop = QPushButton("Stop")
-        self.btn_stop.setFixedHeight(42)
+        self.btn_stop.setFixedHeight(40)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_SECONDARY};
                 color: {COLOR_SECONDARY_TEXT};
-                font-weight: 700;
+                font-weight: 500;
                 font-size: 13px;
-                padding: 0 22px;
-                border-radius: 4px;
+                padding: 0 20px;
+                border-radius: 8px;
                 border: none;
             }}
             QPushButton:hover {{
@@ -497,7 +505,7 @@ class MainWindow(QMainWindow):
             self.chk_polish_sync.setChecked(checked)
 
     def _on_track_count_changed(self, count: int) -> None:
-        self.btn_toggle_drawer.setText(f"☰ Tracks ({count})")
+        self.btn_toggle_drawer.setText(f"Tracks ({count})")
         self.lbl_drawer_count.setText(f"{count} {'track' if count == 1 else 'tracks'}")
         if count > 1 and not self.tracks_drawer.isVisible():
             self.btn_toggle_drawer.setChecked(True)
@@ -517,9 +525,11 @@ class MainWindow(QMainWindow):
         if len(tracks) > 1:
             pending = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
             if pending:
-                self.btn_start.setText(f"Transcribe All ({len(pending)} Tracks)")
+                n = len(pending)
+                self.btn_start.setText(f"Transcribe All ({n} Track{'s' if n != 1 else ''})")
             else:
-                self.btn_start.setText(f"Re-run All ({len(tracks)} Tracks)")
+                n = len(tracks)
+                self.btn_start.setText(f"Re-run All ({n} Track{'s' if n != 1 else ''})")
         elif len(tracks) == 1:
             self.btn_start.setText("Transcribe Track")
         else:
@@ -773,7 +783,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Done",
-            "Transcription completed! Document is ready.",
+            "Transcription completed. Document is ready.",
         )
 
     def _on_worker_cancelled(self) -> None:

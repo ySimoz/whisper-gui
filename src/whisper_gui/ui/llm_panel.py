@@ -37,6 +37,8 @@ from whisper_gui.models import LLMConfig
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
     COLOR_BORDER,
+    COLOR_NEGATIVE,
+    COLOR_POSITIVE,
     COLOR_PRIMARY,
     COLOR_PRIMARY_HOVER,
     COLOR_PRIMARY_TEXT,
@@ -46,7 +48,11 @@ from whisper_gui.ui.theme import (
     COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    COLOR_TEXT_SECONDARY,
 )
+
+_SECTION_LABEL_STYLE = f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 500; padding: 0;"
+_FIELD_LABEL_STYLE = f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; font-weight: 500; padding: 0;"
 
 
 class InstructionEditorDialog(QDialog):
@@ -98,14 +104,14 @@ class LLMPanel(QWidget):
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(14)
+        main_layout.setSpacing(12)
 
-        sec_hdr = QLabel("AI Speech Polishing")
-        sec_hdr.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 700; padding: 0;")
+        sec_hdr = QLabel("Transcript Polishing")
+        sec_hdr.setStyleSheet(_SECTION_LABEL_STYLE)
         main_layout.addWidget(sec_hdr)
 
-        self.chk_enable = QCheckBox("Enable AI speech polishing")
-        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 700; font-size: 13px; background-color: transparent;")
+        self.chk_enable = QCheckBox("Enable transcript polishing")
+        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 500; font-size: 13px; background-color: transparent;")
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
         main_layout.addWidget(self.chk_enable)
 
@@ -115,11 +121,11 @@ class LLMPanel(QWidget):
         self.controls_container.setStyleSheet("#llm_controls_container { background-color: transparent; }")
         ctrl_layout = QVBoxLayout(self.controls_container)
         ctrl_layout.setContentsMargins(0, 0, 0, 0)
-        ctrl_layout.setSpacing(10)
+        ctrl_layout.setSpacing(12)
 
         # Provider
-        lbl_prov = QLabel("AI Provider")
-        lbl_prov.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_prov = QLabel("Provider")
+        lbl_prov.setStyleSheet(_FIELD_LABEL_STYLE)
         ctrl_layout.addWidget(lbl_prov)
 
         self.combo_provider = QComboBox()
@@ -131,7 +137,7 @@ class LLMPanel(QWidget):
 
         # Model Name
         lbl_mod = QLabel("Model Name")
-        lbl_mod.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_mod.setStyleSheet(_FIELD_LABEL_STYLE)
         ctrl_layout.addWidget(lbl_mod)
 
         self.combo_model = QComboBox()
@@ -143,7 +149,7 @@ class LLMPanel(QWidget):
 
         # Base URL
         lbl_url = QLabel("API Base URL")
-        lbl_url.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_url.setStyleSheet(_FIELD_LABEL_STYLE)
         ctrl_layout.addWidget(lbl_url)
 
         self.txt_base_url = QLineEdit()
@@ -154,7 +160,7 @@ class LLMPanel(QWidget):
 
         # API Key
         lbl_key = QLabel("API Key")
-        lbl_key.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_key.setStyleSheet(_FIELD_LABEL_STYLE)
         ctrl_layout.addWidget(lbl_key)
 
         key_box = QHBoxLayout()
@@ -162,7 +168,7 @@ class LLMPanel(QWidget):
         self.txt_api_key = QLineEdit()
         self.txt_api_key.setFixedHeight(36)
         self.txt_api_key.setEchoMode(QLineEdit.Password)
-        self.txt_api_key.setPlaceholderText("Paste your API key here")
+        self.txt_api_key.setPlaceholderText("Paste API key")
         self.txt_api_key.textChanged.connect(self._on_setting_changed)
         key_box.addWidget(self.txt_api_key, stretch=1)
 
@@ -185,7 +191,7 @@ class LLMPanel(QWidget):
 
         # Prompt Instructions
         lbl_prompt = QLabel("Custom Instructions Prompt")
-        lbl_prompt.setStyleSheet("color: #E2E8F0; font-size: 13px; font-weight: 600; padding: 0;")
+        lbl_prompt.setStyleSheet(_FIELD_LABEL_STYLE)
         ctrl_layout.addWidget(lbl_prompt)
 
         self.lbl_active_prompt = QLabel("Active: Default (Speech Polisher)")
@@ -196,17 +202,17 @@ class LLMPanel(QWidget):
         prompt_btn_row.setSpacing(8)
 
         self.btn_view_edit = QPushButton("View / Edit Prompt")
-        self.btn_view_edit.setFixedHeight(34)
+        self.btn_view_edit.setFixedHeight(32)
         self.btn_view_edit.clicked.connect(self._view_edit_instructions)
         prompt_btn_row.addWidget(self.btn_view_edit)
 
         self.btn_import_md = QPushButton("Import .md File")
-        self.btn_import_md.setFixedHeight(34)
+        self.btn_import_md.setFixedHeight(32)
         self.btn_import_md.clicked.connect(self._import_md_file)
         prompt_btn_row.addWidget(self.btn_import_md)
 
         self.btn_reset_default = QPushButton("Reset to Default")
-        self.btn_reset_default.setFixedHeight(34)
+        self.btn_reset_default.setFixedHeight(32)
         self.btn_reset_default.clicked.connect(self._reset_instructions)
         prompt_btn_row.addWidget(self.btn_reset_default)
 
@@ -284,12 +290,12 @@ class LLMPanel(QWidget):
             ok, msg = test_llm_connection(cfg, timeout=12.0)
             if ok:
                 self.lbl_conn_status.setStyleSheet(
-                    f"color: {COLOR_PRIMARY}; font-weight: bold; font-size: 11px;"
+                    f"color: {COLOR_POSITIVE}; font-weight: 500; font-size: 12px;"
                 )
                 self.lbl_conn_status.setText(msg)
             else:
                 self.lbl_conn_status.setStyleSheet(
-                    f"color: {COLOR_SECONDARY}; font-weight: bold; font-size: 11px;"
+                    f"color: {COLOR_NEGATIVE}; font-weight: 500; font-size: 12px;"
                 )
                 self.lbl_conn_status.setText(msg)
         finally:

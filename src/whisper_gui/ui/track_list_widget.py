@@ -24,15 +24,17 @@ from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_i
 from whisper_gui.models import AudioTrack, TrackStatus
 from whisper_gui.ui.theme import (
     COLOR_BG_INPUT,
+    COLOR_BG_PANEL_ALT,
+    COLOR_BG_RAISED,
     COLOR_BG_SURFACE,
     COLOR_BORDER,
+    COLOR_NEGATIVE,
+    COLOR_POSITIVE,
     COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_TEXT,
-    COLOR_SECONDARY,
-    COLOR_TEXT_HINT,
     COLOR_TEXT_MAIN,
     COLOR_TEXT_MUTED,
+    COLOR_WARNING,
+    fixed_mono_font,
 )
 
 SUPPORTED_AUDIO_EXTENSIONS = {
@@ -42,11 +44,11 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 
 STATUS_COLORS = {
     TrackStatus.QUEUED: COLOR_TEXT_MUTED,
-    TrackStatus.SLICING: "#F39C12",
+    TrackStatus.SLICING: COLOR_WARNING,
     TrackStatus.TRANSCRIBING: COLOR_PRIMARY,
-    TrackStatus.COMPLETED: "#2ECC71",
-    TrackStatus.CANCELLED: "#E74C3C",
-    TrackStatus.ERROR: COLOR_SECONDARY,
+    TrackStatus.COMPLETED: COLOR_POSITIVE,
+    TrackStatus.CANCELLED: COLOR_NEGATIVE,
+    TrackStatus.ERROR: COLOR_NEGATIVE,
 }
 
 
@@ -79,34 +81,15 @@ class TrackListWidget(QFrame):
 
         # Action toolbar
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
+        toolbar.setSpacing(8)
 
         self.btn_add_files = QPushButton("+ Files")
-        self.btn_add_files.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                font-weight: 600;
-                padding: 4px 10px;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_PRIMARY_HOVER};
-            }}
-        """)
+        self.btn_add_files.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_files)
 
         self.btn_add_folder = QPushButton("+ Folder")
         self.btn_add_folder.setToolTip("Scan directory recursively for audio files")
-        self.btn_add_folder.setStyleSheet("""
-            QPushButton {
-                padding: 4px 10px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-        """)
+        self.btn_add_folder.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_folder)
 
         self.btn_remove = QPushButton("Remove")
@@ -124,26 +107,36 @@ class TrackListWidget(QFrame):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Track", "Length", "Status", "Word (.docx)"])
+        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(1, 96)
+        self.table.setColumnWidth(2, 92)
+        self.table.setColumnHidden(3, True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setTextElideMode(Qt.ElideMiddle)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(32)
+        self.table.verticalHeader().setDefaultSectionSize(36)
         self.table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {COLOR_BG_INPUT};
+                alternate-background-color: {COLOR_BG_PANEL_ALT};
                 border: 1px solid {COLOR_BORDER};
-                border-radius: 4px;
-                gridline-color: {COLOR_BORDER};
+                border-radius: 8px;
                 font-size: 12px;
                 color: {COLOR_TEXT_MAIN};
             }}
+            QTableWidget::item {{
+                border-bottom: 1px solid {COLOR_BORDER};
+                padding: 4px 8px;
+            }}
             QTableWidget::item:selected {{
-                background-color: #1E3A5F;
+                background-color: {COLOR_BG_RAISED};
                 color: {COLOR_TEXT_MAIN};
             }}
         """)
@@ -255,14 +248,15 @@ class TrackListWidget(QFrame):
                 e = slice_cfg.effective_end(total_dur)
                 range_str = f"{format_seconds(s)} → {format_seconds(e)}"
             item_dur = QTableWidgetItem(range_str)
-            item_dur.setTextAlignment(Qt.AlignCenter)
+            item_dur.setFont(fixed_mono_font(11))
+            item_dur.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.table.setItem(row, 1, item_dur)
 
             # Column 2: Status
             status_text = track.status_message or track.status.value
             item_status = QTableWidgetItem(status_text)
             item_status.setTextAlignment(Qt.AlignCenter)
-            color_hex = STATUS_COLORS.get(track.status, "#495057")
+            color_hex = STATUS_COLORS.get(track.status, COLOR_TEXT_MUTED)
             item_status.setForeground(QColor(color_hex))
             self.table.setItem(row, 2, item_status)
 
