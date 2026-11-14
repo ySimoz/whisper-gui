@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-green?style=flat-square" alt="Python Version" />
   <img src="https://img.shields.io/badge/Engine-faster--whisper-orange?style=flat-square" alt="Engine" />
   <img src="https://img.shields.io/badge/UI-PySide6%20(Qt%206)-purple?style=flat-square" alt="UI" />
-  <img src="https://img.shields.io/badge/Tests-47%20Passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-85%20Passing-brightgreen?style=flat-square" alt="Tests" />
 </p>
 
 ---
@@ -27,14 +27,14 @@
 ## Workflow Preview
 
 ### 1. Workspace & Multi-Track Lateral Drawer
-The slide-out drawer keeps your audio queue organized with live progress pills, one-click track activation, and batch processing:
+The slide-out drawer keeps your audio queue organized with live track progress, trim indicators, and inline transcript editing, search, and export (`Word`, `SRT`, `VTT`, `TXT`):
 
 ![Workspace with Lateral Drawer](assets/screenshots/workspace.png)
 
 ---
 
 ### 2. Audio Trimming
-Frame-accurate range selection with Start/End markers to transcribe only the sections you need:
+Frame-accurate range selection with `Start`/`End` timestamps and audio preview playback to transcribe only the sections you need:
 
 <p align="center">
   <img src="assets/screenshots/trim_dialog.png" width="600" alt="Audio Trimming Dialog" />
@@ -131,7 +131,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Install package with development dependencies
 pip install -e ".[dev]"
 
-# Run full test suite (47 unit & integration tests)
+# Run full test suite (85 unit & integration tests)
 pytest -v
 ```
 
