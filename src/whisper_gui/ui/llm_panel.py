@@ -34,7 +34,7 @@ from whisper_gui.llm_cleaner import (
     test_llm_connection,
 )
 from whisper_gui.models import LLMConfig
-from whisper_gui.ui.theme import get_palette
+from whisper_gui.ui.theme import ToggleSwitch, get_palette
 
 
 class InstructionEditorDialog(QDialog):
@@ -101,7 +101,7 @@ class LLMPanel(QWidget):
         self._section_labels.append(sec_hdr)
         main_layout.addWidget(sec_hdr)
 
-        self.chk_enable = QCheckBox("Enable transcript polishing")
+        self.chk_enable = ToggleSwitch("Enable transcript polishing")
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
         main_layout.addWidget(self.chk_enable)
 
@@ -198,7 +198,7 @@ class LLMPanel(QWidget):
         prompt_btn_row.addStretch()
         ctrl_layout.addLayout(prompt_btn_row)
 
-        self.chk_raw_appendix = QCheckBox("Include raw transcript in Word document")
+        self.chk_raw_appendix = ToggleSwitch("Include raw transcript in Word document")
         self.chk_raw_appendix.setChecked(True)
         self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
         ctrl_layout.addWidget(self.chk_raw_appendix)

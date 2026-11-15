@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.3
+
+### What's New
+- **Apple-Style Interactive Toggle Switches:** Replaced settings and toolbar checkboxes with smooth `ToggleSwitch` pill switches supporting both click-to-toggle and continuous mouse-drag switching with mid-drag cancellation snap-back.
+- **Simplified App Logo & Icon Bundle:** Removed the waves from `minimal_whisper.svg`, scaled the cream pen nib up by `1.18x` optically centered inside the `#1A1C96` tile, and regenerated crisp `icon.png`, `icon.icns`, and `icon.ico` assets.
+
 ## v0.2.2
 
 ### What's New

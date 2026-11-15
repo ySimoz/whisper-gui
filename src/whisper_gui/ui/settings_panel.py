@@ -33,7 +33,7 @@ from whisper_gui.transcriber import (
     get_model_cache_size_mb,
     is_model_downloaded_on_disk,
 )
-from whisper_gui.ui.theme import get_palette, get_theme_name, swatch_icon
+from whisper_gui.ui.theme import ToggleSwitch, get_palette, get_theme_name, swatch_icon
 
 SUPPORTED_LANGUAGES = [
     ("Auto-detect", None),
@@ -235,11 +235,11 @@ class SettingsPanel(QWidget):
 
         layout.addSpacing(4)
 
-        self.chk_vad = QCheckBox("Voice Activity Detection (skip silence)")
+        self.chk_vad = ToggleSwitch("Voice Activity Detection (skip silence)")
         self.chk_vad.setChecked(True)
         layout.addWidget(self.chk_vad)
 
-        self.chk_timestamps = QCheckBox("Include timestamps in Word document")
+        self.chk_timestamps = ToggleSwitch("Include timestamps in Word document")
         self.chk_timestamps.setChecked(True)
         layout.addWidget(self.chk_timestamps)
 
@@ -281,7 +281,7 @@ class SettingsPanel(QWidget):
         self.combo_export_format.setFixedHeight(36)
         layout.addWidget(self.combo_export_format)
 
-        self.chk_auto_export = QCheckBox("Auto-export file when transcription finishes")
+        self.chk_auto_export = ToggleSwitch("Auto-export file when transcription finishes")
         self.chk_auto_export.setChecked(True)
         self._muted_checks.append(self.chk_auto_export)
         layout.addWidget(self.chk_auto_export)
@@ -303,7 +303,7 @@ class SettingsPanel(QWidget):
         ram_row.addWidget(self.btn_free_ram)
         layout.addLayout(ram_row)
 
-        self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
+        self.chk_auto_unload = ToggleSwitch("Auto-unload model after transcription finishes")
         self._muted_checks.append(self.chk_auto_unload)
         layout.addWidget(self.chk_auto_unload)
 

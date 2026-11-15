@@ -955,3 +955,60 @@ def test_theme_switching_drop_animation(qtbot):
         set_theme("graphite")
         qsettings.setValue("Settings/theme", prev_theme)
         QApplication.processEvents()
+
+
+def test_toggle_switch_drag_and_tap(qtbot):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from whisper_gui.ui.theme import ToggleSwitch
+
+    sw = ToggleSwitch("Test toggle")
+    qtbot.addWidget(sw)
+    sw.resize(sw.sizeHint())
+    sw.show()
+    QApplication.processEvents()
+
+    def send_mouse(kind, x: float, buttons=Qt.LeftButton, button=Qt.LeftButton):
+        pos = QPointF(x, sw.height() / 2.0)
+        ev = QMouseEvent(kind, pos, pos, button, buttons, Qt.NoModifier)
+        QApplication.sendEvent(sw, ev)
+
+    # 1. Plain tap toggles ON
+    assert not sw.isChecked()
+    send_mouse(QEvent.Type.MouseButtonPress, 10.0)
+    send_mouse(QEvent.Type.MouseButtonRelease, 11.0, Qt.NoButton)
+    assert sw.isChecked()
+
+    # 2. Partial drag back from ON (< 0.5 distance from 1.0 -> stays >= 0.5) cancels cleanly
+    sw._anim.stop()
+    sw._pos = 1.0
+    send_mouse(QEvent.Type.MouseButtonPress, 26.0)
+    send_mouse(QEvent.Type.MouseMove, 20.0)  # -6px -> _pos = 0.625 (midway)
+    assert 0.5 < sw._pos < 0.75
+    send_mouse(QEvent.Type.MouseButtonRelease, 20.0, Qt.NoButton)
+    assert sw.isChecked()
+    qtbot.waitUntil(lambda: abs(sw._pos - 1.0) < 0.01, timeout=1000)
+
+    # 3. Full drag back from ON past midpoint flips OFF
+    send_mouse(QEvent.Type.MouseButtonPress, 26.0)
+    send_mouse(QEvent.Type.MouseMove, 14.0)  # -12px -> _pos = 0.25 (< 0.5)
+    assert 0.2 <= sw._pos <= 0.3
+    send_mouse(QEvent.Type.MouseButtonRelease, 14.0, Qt.NoButton)
+    assert not sw.isChecked()
+    qtbot.waitUntil(lambda: abs(sw._pos - 0.0) < 0.01, timeout=1000)
+
+    # 4. Partial drag forward from OFF (< 0.5) cancels and snaps back to 0.0
+    send_mouse(QEvent.Type.MouseButtonPress, 10.0)
+    send_mouse(QEvent.Type.MouseMove, 15.0)  # +5px -> _pos = 0.3125
+    assert 0.25 < sw._pos < 0.5
+    send_mouse(QEvent.Type.MouseButtonRelease, 15.0, Qt.NoButton)
+    assert not sw.isChecked()
+    qtbot.waitUntil(lambda: abs(sw._pos - 0.0) < 0.01, timeout=1000)
+
+    # 5. Full drag forward past midpoint flips ON
+    send_mouse(QEvent.Type.MouseButtonPress, 10.0)
+    send_mouse(QEvent.Type.MouseMove, 22.0)  # +12px -> _pos = 0.75
+    assert sw._pos >= 0.7
+    send_mouse(QEvent.Type.MouseButtonRelease, 22.0, Qt.NoButton)
+    assert sw.isChecked()
+    qtbot.waitUntil(lambda: abs(sw._pos - 1.0) < 0.01, timeout=1000)

@@ -60,6 +60,7 @@ from whisper_gui.ui.range_selector import RangeSelectorWidget, TrimAudioDialog
 from whisper_gui.ui.settings_page import SettingsPageWidget
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import (
+    ToggleSwitch,
     build_stylesheet,
     fixed_mono_font,
     get_palette,
@@ -395,7 +396,7 @@ class MainWindow(QMainWindow):
         self.btn_open_trim.clicked.connect(self._open_trim_dialog)
         actions_row.addWidget(self.btn_open_trim)
 
-        self.chk_polish_sync = QCheckBox("Auto-polish transcript")
+        self.chk_polish_sync = ToggleSwitch("Auto-polish transcript")
         self.chk_polish_sync.setStyleSheet("font-weight: 400; background-color: transparent;")
         self.chk_polish_sync.toggled.connect(self._on_polish_sync_toggled)
         actions_row.addWidget(self.chk_polish_sync)

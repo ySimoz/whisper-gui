@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtWidgets import QCheckBox, QStyle, QStyleOptionButton
 
 from whisper_gui.platform_utils import get_asset_path
 
@@ -225,6 +226,162 @@ def fixed_mono_font(point_size: int | None = None) -> QFont:
     if point_size is not None:
         font.setPointSize(point_size)
     return font
+
+
+class ToggleSwitch(QCheckBox):
+    """Apple-style pill toggle switch supporting both click-to-toggle and smooth drag."""
+
+    _TRACK_W = 36
+    _TRACK_H = 20
+    _GAP = 10
+    _KNOB_D = 16.0
+    _TRAVEL_PX = 16.0  # _TRACK_W - _KNOB_D - 2 * 2px inset
+    _DRAG_THRESHOLD = 3.0
+
+    def __init__(self, text: str = "", parent=None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        self._pos = 1.0 if self.isChecked() else 0.0
+        self._pressed = False
+        self._dragging = False
+        self._press_x = 0.0
+        self._press_pos = self._pos
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(140)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._on_anim_value)
+        self.toggled.connect(self._on_toggled)
+
+    def _on_anim_value(self, value) -> None:
+        self._pos = float(value)
+        self.update()
+
+    def _animate_to(self, target: float) -> None:
+        self._anim.stop()
+        if not self.isVisible() or abs(self._pos - target) < 0.005:
+            self._pos = target
+            self.update()
+            return
+        self._anim.setStartValue(self._pos)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def _on_toggled(self, checked: bool) -> None:
+        self._animate_to(1.0 if checked else 0.0)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self.isEnabled():
+            self._anim.stop()
+            self._pressed = True
+            self._dragging = False
+            self._press_x = event.position().x()
+            self._press_pos = self._pos
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._pressed and (event.buttons() & Qt.LeftButton):
+            dx = event.position().x() - self._press_x
+            if not self._dragging and abs(dx) >= self._DRAG_THRESHOLD:
+                self._dragging = True
+            if self._dragging:
+                self._pos = max(0.0, min(1.0, self._press_pos + dx / self._TRAVEL_PX))
+                self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._pressed:
+            was_dragging = self._dragging
+            self._pressed = False
+            self._dragging = False
+            if was_dragging:
+                target_checked = self._pos >= 0.5
+                if target_checked != self.isChecked():
+                    self.setChecked(target_checked)
+                else:
+                    # Drag stopped short of midpoint: animate smoothly back instead of hanging
+                    self._animate_to(1.0 if target_checked else 0.0)
+            elif self.rect().contains(event.position().toPoint()):
+                self.click()
+            else:
+                self._animate_to(1.0 if self.isChecked() else 0.0)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def sizeHint(self) -> QSize:
+        self.ensurePolished()
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self.text()) if self.text() else 0
+        w = self._TRACK_W + (self._GAP + text_w if text_w else 0) + 4
+        h = max(self._TRACK_H + 4, fm.height() + 4)
+        return QSize(w, h)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def hitButton(self, pos: QPoint) -> bool:
+        return self.rect().contains(pos)
+
+    def paintEvent(self, event) -> None:
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+
+        p = get_palette()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        t = self._pos
+        hovered = bool(opt.state & QStyle.State_MouseOver)
+        enabled = self.isEnabled()
+
+        off_color = QColor(p.button_hover_bg) if p.name == "graphite" else QColor(p.border)
+        on_color = QColor(p.primary_hover if hovered else p.primary)
+        r = round(off_color.red() * (1.0 - t) + on_color.red() * t)
+        g = round(off_color.green() * (1.0 - t) + on_color.green() * t)
+        b = round(off_color.blue() * (1.0 - t) + on_color.blue() * t)
+        track_color = QColor(r, g, b)
+
+        track_y = (self.height() - self._TRACK_H) / 2.0
+        track_rect = QRectF(0.5, track_y + 0.5, self._TRACK_W - 1.0, self._TRACK_H - 1.0)
+        radius = (self._TRACK_H - 1.0) / 2.0
+
+        if not enabled:
+            painter.setOpacity(0.45)
+
+        painter.setBrush(track_color)
+        if t < 0.99:
+            painter.setPen(QColor(p.button_hover_border if hovered else p.border_light))
+        else:
+            painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(track_rect, radius, radius)
+
+        knob_d = 16.0
+        knob_margin = (self._TRACK_H - knob_d) / 2.0
+        knob_x = knob_margin + (self._TRACK_W - knob_d - 2.0 * knob_margin) * t
+        knob_y = track_y + knob_margin
+        knob_rect = QRectF(knob_x, knob_y, knob_d, knob_d)
+
+        knob_color = QColor("#FFFFFF") if (p.name != "graphite" or t > 0.25) else QColor("#D4D4D8")
+        painter.setBrush(knob_color)
+        painter.setPen(QColor(0, 0, 0, 26))
+        painter.drawEllipse(knob_rect)
+
+        if self.text():
+            painter.setFont(self.font())
+            painter.setPen(opt.palette.windowText().color())
+            text_rect = QRectF(
+                self._TRACK_W + self._GAP,
+                0,
+                max(0, self.width() - (self._TRACK_W + self._GAP)),
+                self.height(),
+            )
+            painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, self.text())
+
+        painter.end()
 
 
 def build_stylesheet(p: ThemePalette | None = None) -> str:
