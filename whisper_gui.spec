@@ -51,6 +51,7 @@ if local_bin_dir.is_dir():
 
 hiddenimports = [
     'whisper_gui',
+    'whisper_gui.i18n',
     'whisper_gui.platform_utils',
     'whisper_gui.audio_utils',
     'whisper_gui.docx_exporter',

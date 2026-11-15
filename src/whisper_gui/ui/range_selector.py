@@ -26,6 +26,7 @@ except ImportError:
     QMediaPlayer = None  # type: ignore[assignment]
 
 from whisper_gui.audio_utils import format_seconds
+from whisper_gui.i18n import tr
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode
 from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
 
@@ -72,8 +73,8 @@ class RangeSelectorWidget(QWidget):
         mode_row.setSpacing(16)
 
         self.btn_group_mode = QButtonGroup(self)
-        self.radio_full = QRadioButton("Full Audio")
-        self.radio_custom = QRadioButton("Custom Range")
+        self.radio_full = QRadioButton(tr("range.full_audio"))
+        self.radio_custom = QRadioButton(tr("range.custom_range"))
         self.radio_full.setChecked(True)
 
         self.btn_group_mode.addButton(self.radio_full, 0)
@@ -83,7 +84,7 @@ class RangeSelectorWidget(QWidget):
         mode_row.addWidget(self.radio_custom)
         mode_row.addStretch()
 
-        self.lbl_selected_length = QLabel("Selected: 00:00:00")
+        self.lbl_selected_length = QLabel(tr("range.selected_zero"))
         self.lbl_selected_length.setFont(fixed_mono_font(12))
         self.lbl_selected_length.setStyleSheet(f"color: {p.text_main};")
         mode_row.addWidget(self.lbl_selected_length)
@@ -92,9 +93,9 @@ class RangeSelectorWidget(QWidget):
         time_row = QHBoxLayout()
         time_row.setSpacing(12)
 
-        lbl_start = QLabel("Start")
-        lbl_start.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
-        time_row.addWidget(lbl_start)
+        self.lbl_start = QLabel(tr("range.start"))
+        self.lbl_start.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        time_row.addWidget(self.lbl_start)
 
         self.time_start = QTimeEdit()
         self.time_start.setDisplayFormat("HH:mm:ss")
@@ -105,9 +106,9 @@ class RangeSelectorWidget(QWidget):
 
         time_row.addSpacing(4)
 
-        lbl_end = QLabel("End")
-        lbl_end.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
-        time_row.addWidget(lbl_end)
+        self.lbl_end = QLabel(tr("range.end"))
+        self.lbl_end.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        time_row.addWidget(self.lbl_end)
 
         self.time_end = QTimeEdit()
         self.time_end.setDisplayFormat("HH:mm:ss")
@@ -130,7 +131,7 @@ class RangeSelectorWidget(QWidget):
         self.slider_range.setValue(1000)
         slider_layout.addWidget(self.slider_range)
 
-        self.lbl_slider_info = QLabel("Range: 00:00:00 / Total: 00:00:00")
+        self.lbl_slider_info = QLabel(tr("range.slider_initial"))
         self.lbl_slider_info.setFont(fixed_mono_font(11))
         self.lbl_slider_info.setStyleSheet(f"color: {p.text_muted};")
         slider_layout.addWidget(self.lbl_slider_info)
@@ -146,14 +147,26 @@ class RangeSelectorWidget(QWidget):
 
         self._update_container_enabled_state()
 
+    def retranslate_ui(self) -> None:
+        """Update all visible strings to the active application language."""
+        self.radio_full.setText(tr("range.full_audio"))
+        self.radio_custom.setText(tr("range.custom_range"))
+        self.lbl_start.setText(tr("range.start"))
+        self.lbl_end.setText(tr("range.end"))
+        if self._current_track is None:
+            self.lbl_selected_length.setText(tr("range.no_track"))
+            self.lbl_slider_info.setText(tr("range.position_zero"))
+        else:
+            self._update_readout()
+
     def set_track(self, track: AudioTrack | None) -> None:
         """Set the active track being inspected and configured."""
         self._current_track = track
         if track is None:
             self._total_duration = 0.0
             self.setEnabled(False)
-            self.lbl_selected_length.setText("No track selected")
-            self.lbl_slider_info.setText("Position: 00:00:00 / 00:00:00")
+            self.lbl_selected_length.setText(tr("range.no_track"))
+            self.lbl_slider_info.setText(tr("range.position_zero"))
             return
 
         self.setEnabled(True)
@@ -253,14 +266,14 @@ class RangeSelectorWidget(QWidget):
 
     def _update_readout(self) -> None:
         if self._total_duration <= 0:
-            self.lbl_selected_length.setText("Selected: 00:00:00")
-            self.lbl_slider_info.setText("Position: 00:00:00 / 00:00:00")
+            self.lbl_selected_length.setText(tr("range.selected_zero"))
+            self.lbl_slider_info.setText(tr("range.position_zero"))
             return
 
         if self.radio_full.isChecked():
             dur_str = format_seconds(self._total_duration)
-            self.lbl_selected_length.setText(f"Selected: {dur_str} (Full Audio)")
-            self.lbl_slider_info.setText(f"Range: 00:00:00 → {dur_str} / Total: {dur_str}")
+            self.lbl_selected_length.setText(tr("range.selected_full", duration=dur_str))
+            self.lbl_slider_info.setText(tr("range.slider_full", duration=dur_str))
         else:
             start_sec = self._qtime_to_seconds(self.time_start.time())
             end_sec = self._qtime_to_seconds(self.time_end.time())
@@ -269,8 +282,10 @@ class RangeSelectorWidget(QWidget):
             e_str = format_seconds(end_sec)
             d_str = format_seconds(dur)
             t_str = format_seconds(self._total_duration)
-            self.lbl_selected_length.setText(f"Selected: {d_str}")
-            self.lbl_slider_info.setText(f"Range: {s_str} → {e_str} ({d_str}) / Total: {t_str}")
+            self.lbl_selected_length.setText(tr("range.selected_custom", duration=d_str))
+            self.lbl_slider_info.setText(
+                tr("range.slider_custom", start=s_str, end=e_str, duration=d_str, total=t_str)
+            )
 
     @staticmethod
     def _set_qtime(time_widget: QTimeEdit, seconds: float) -> None:
@@ -296,7 +311,7 @@ class TrimAudioDialog(QDialog):
         self._preview_end_ms: int | None = None
         self._duration_ms: int = int(round(max(0.0, track.info.duration) * 1000))
 
-        self.setWindowTitle(f"Trim Audio - {track.info.filename}")
+        self.setWindowTitle(tr("trim.window_title", filename=track.info.filename))
         self.setMinimumWidth(520)
         self.resize(560, 300)
 
@@ -305,7 +320,7 @@ class TrimAudioDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
 
         p = get_palette()
-        title = QLabel(f"Trim {track.info.filename}")
+        title = QLabel(tr("trim.heading", filename=track.info.filename))
         title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {p.text_main};")
         layout.addWidget(title)
 
@@ -331,13 +346,13 @@ class TrimAudioDialog(QDialog):
         preview_layout.setContentsMargins(12, 8, 12, 8)
         preview_layout.setSpacing(8)
 
-        self.btn_play_pause = QPushButton("Play")
+        self.btn_play_pause = QPushButton(tr("trim.play"))
         self.btn_play_pause.setIcon(load_ui_icon("play"))
         self.btn_play_pause.setIconSize(QSize(14, 14))
         self.btn_play_pause.clicked.connect(self._on_play_pause)
         preview_layout.addWidget(self.btn_play_pause)
 
-        self.btn_play_selection = QPushButton("Preview Range")
+        self.btn_play_selection = QPushButton(tr("trim.preview_range"))
         self.btn_play_selection.setIcon(load_ui_icon("play"))
         self.btn_play_selection.setIconSize(QSize(14, 14))
         self.btn_play_selection.clicked.connect(self._on_play_selection)
@@ -353,7 +368,8 @@ class TrimAudioDialog(QDialog):
         layout.addWidget(preview_bar)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.button(QDialogButtonBox.Ok).setText("Apply")
+        btn_box.button(QDialogButtonBox.Ok).setText(tr("trim.apply"))
+        btn_box.button(QDialogButtonBox.Cancel).setText(tr("trim.cancel"))
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -437,10 +453,10 @@ class TrimAudioDialog(QDialog):
 
     def _on_playback_state_changed(self, state: object) -> None:
         if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.PlayingState:
-            self.btn_play_pause.setText("Pause")
+            self.btn_play_pause.setText(tr("trim.pause"))
             self.btn_play_pause.setIcon(load_ui_icon("pause"))
         else:
-            self.btn_play_pause.setText("Play")
+            self.btn_play_pause.setText(tr("trim.play"))
             self.btn_play_pause.setIcon(load_ui_icon("play"))
             if QMediaPlayer is not None and state == QMediaPlayer.PlaybackState.StoppedState:
                 self._preview_end_ms = None

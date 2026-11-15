@@ -13,6 +13,7 @@ from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 
 from whisper_gui.audio_utils import format_seconds
+from whisper_gui.i18n import tr
 from whisper_gui.models import AudioInfo, SliceConfig, TranscriptionConfig, TranscriptionResult
 
 
@@ -78,7 +79,7 @@ def export_transcript_to_docx(
     title_p = doc.add_paragraph()
     title_p.paragraph_format.space_after = Pt(2)
     title_p.paragraph_format.space_before = Pt(0)
-    title_run = title_p.add_run("Audio Transcription")
+    title_run = title_p.add_run(tr("export.title"))
     title_run.font.size = Pt(22)
     title_run.font.bold = True
     title_run.font.color.rgb = RGBColor(26, 82, 118)  # Deep professional blue
@@ -86,7 +87,7 @@ def export_transcript_to_docx(
     # Subtitle / Filename
     subtitle_p = doc.add_paragraph()
     subtitle_p.paragraph_format.space_after = Pt(16)
-    sub_run = subtitle_p.add_run(f"Source file: {track_info.filename}")
+    sub_run = subtitle_p.add_run(tr("export.docx.source_subtitle", filename=track_info.filename))
     sub_run.font.size = Pt(12)
     sub_run.font.italic = True
     sub_run.font.color.rgb = RGBColor(108, 117, 125)
@@ -98,39 +99,41 @@ def export_transcript_to_docx(
     slice_dur = slice_config.effective_duration(track_info.duration)
 
     range_desc = (
-        "Entire Audio"
+        tr("export.entire_audio")
         if slice_config.is_full(track_info.duration)
         else f"{format_seconds(start_sec)} → {format_seconds(end_sec)} ({format_seconds(slice_dur)})"
     )
 
-    lang_display = result.detected_language or (transcription_config.language or "Auto-detected")
+    lang_display = result.detected_language or (transcription_config.language or tr("export.auto_detected"))
     if result.language_probability > 0:
-        lang_display += f" ({result.language_probability * 100:.1f}% confidence)"
+        lang_display += f" ({result.language_probability * 100:.1f}% {tr('export.confidence')})"
 
     speed_text = (
-        f"{result.elapsed_time:.1f}s ({result.speed_factor:.2f}x real-time)"
+        tr("export.speed_format", elapsed=result.elapsed_time, factor=result.speed_factor)
         if result.elapsed_time > 0
-        else "N/A"
+        else tr("export.na")
     )
 
     metadata_rows = [
-        ("Source File", track_info.filename),
-        ("Original Duration", track_info.duration_formatted),
-        ("Transcribed Range", range_desc),
-        ("Date & Time", now_str),
-        ("Whisper Model", f"{transcription_config.model_name} (faster-whisper)"),
-        ("Detected Language", lang_display),
-        ("Processing Time", speed_text),
+        (tr("export.label.source_file"), track_info.filename),
+        (tr("export.label.original_duration"), track_info.duration_formatted),
+        (tr("export.label.transcribed_range"), range_desc),
+        (tr("export.label.date_time"), now_str),
+        (tr("export.label.whisper_model"), f"{transcription_config.model_name} (faster-whisper)"),
+        (tr("export.label.detected_language"), lang_display),
+        (tr("export.label.processing_time"), speed_text),
     ]
 
     if result.polished_text:
         metadata_rows.append(
-            ("Text Polishing", f"Polished with {result.llm_model_used or 'LLM'}")
+            (tr("export.label.text_polishing"), tr("export.polished_with", model=result.llm_model_used or "LLM"))
         )
         if result.llm_instructions_name:
-            metadata_rows.append(("Polishing Rules", result.llm_instructions_name))
+            metadata_rows.append((tr("export.label.polishing_rules"), result.llm_instructions_name))
     elif result.llm_error:
-        metadata_rows.append(("Polishing Status", f"Fallback to raw ({result.llm_error})"))
+        metadata_rows.append(
+            (tr("export.label.polishing_status"), tr("export.polishing_fallback", error=result.llm_error))
+        )
 
     table = doc.add_table(rows=len(metadata_rows), cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -176,7 +179,7 @@ def export_transcript_to_docx(
         heading = doc.add_heading(level=1)
         heading.paragraph_format.space_before = Pt(12)
         heading.paragraph_format.space_after = Pt(10)
-        h_run = heading.add_run("Polished & Refined Document")
+        h_run = heading.add_run(tr("export.docx.polished_heading"))
         h_run.font.size = Pt(16)
         h_run.font.color.rgb = RGBColor(26, 82, 118)
 
@@ -197,7 +200,7 @@ def export_transcript_to_docx(
             appendix_heading = doc.add_heading(level=2)
             appendix_heading.paragraph_format.space_before = Pt(24)
             appendix_heading.paragraph_format.space_after = Pt(10)
-            app_run = appendix_heading.add_run("Appendix: Original Raw Transcript (with Timestamps)")
+            app_run = appendix_heading.add_run(tr("export.docx.raw_appendix_heading"))
             app_run.font.size = Pt(13)
             app_run.font.color.rgb = RGBColor(108, 117, 125)
 
@@ -227,7 +230,7 @@ def export_transcript_to_docx(
         heading = doc.add_heading(level=1)
         heading.paragraph_format.space_before = Pt(12)
         heading.paragraph_format.space_after = Pt(10)
-        h_run = heading.add_run("Transcript")
+        h_run = heading.add_run(tr("export.docx.raw_heading"))
         h_run.font.size = Pt(16)
         h_run.font.color.rgb = RGBColor(26, 82, 118)
 
@@ -238,7 +241,7 @@ def export_transcript_to_docx(
                 p.paragraph_format.line_spacing = 1.15
                 p.paragraph_format.space_after = Pt(8)
             else:
-                p = doc.add_paragraph("No speech detected in audio file.")
+                p = doc.add_paragraph(tr("export.docx.no_speech"))
                 p.italic = True
         else:
             if transcription_config.include_timestamps_in_docx:
@@ -282,8 +285,5 @@ def export_transcript_to_docx(
     try:
         doc.save(str(out_file))
     except PermissionError as exc:
-        raise PermissionError(
-            f"Cannot save Word document '{out_file.name}': The file is currently open or locked in another program "
-            f"(such as Microsoft Word or LibreOffice). Please close it and try again."
-        ) from exc
+        raise PermissionError(tr("export.docx.locked_error", filename=out_file.name)) from exc
     return out_file

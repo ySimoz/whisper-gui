@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui.exporters import export_transcript
+from whisper_gui.i18n import display_track_status, tr
 from whisper_gui.models import (
     AudioTrack,
     TranscriptionConfig,
@@ -48,6 +49,7 @@ class TranscriptView(QFrame):
         self._exported_paths: dict[str, Path] = {}
         self._raw_segments: list[TranscriptSegment] = []
         self._polished_text: str | None = None
+        self._polished_model_name: str = ""
         self._active_mode: str = "raw"  # "raw" or "polished"
         self._updating_text: bool = False
         self._raw_edited: bool = False
@@ -66,10 +68,10 @@ class TranscriptView(QFrame):
         prog_header = QHBoxLayout()
         prog_header.setSpacing(8)
 
-        self.lbl_section = QLabel("Transcript")
+        self.lbl_section = QLabel(tr("transcript.title"))
         prog_header.addWidget(self.lbl_section)
 
-        self.lbl_status = QLabel("Idle")
+        self.lbl_status = QLabel(tr("transcript.idle"))
         prog_header.addWidget(self.lbl_status)
 
         prog_header.addStretch()
@@ -90,21 +92,21 @@ class TranscriptView(QFrame):
         mode_bar.setSpacing(4)
 
         self.view_btn_group = QButtonGroup(self)
-        self.btn_view_raw = QPushButton("Raw")
+        self.btn_view_raw = QPushButton(tr("transcript.raw"))
         self.btn_view_raw.setCheckable(True)
         self.btn_view_raw.setChecked(True)
         self.view_btn_group.addButton(self.btn_view_raw)
         mode_bar.addWidget(self.btn_view_raw)
 
-        self.btn_view_polished = QPushButton("Polished")
+        self.btn_view_polished = QPushButton(tr("transcript.polished"))
         self.btn_view_polished.setCheckable(True)
         self.btn_view_polished.setEnabled(False)
         self.view_btn_group.addButton(self.btn_view_polished)
         mode_bar.addWidget(self.btn_view_polished)
 
-        self.btn_polish = QPushButton("Polish")
+        self.btn_polish = QPushButton(tr("transcript.polish"))
         self.btn_polish.setEnabled(False)
-        self.btn_polish.setToolTip("Polish or re-polish transcript with LLM without re-transcribing")
+        self.btn_polish.setToolTip(tr("transcript.polish_tooltip"))
         mode_bar.addWidget(self.btn_polish)
 
         self.lbl_view_hint = QLabel("")
@@ -112,9 +114,9 @@ class TranscriptView(QFrame):
 
         mode_bar.addStretch()
 
-        self.btn_find = QPushButton("Find")
+        self.btn_find = QPushButton(tr("transcript.find"))
         self.btn_find.setCheckable(True)
-        self.btn_find.setToolTip("Find in transcript (Ctrl/Cmd+F)")
+        self.btn_find.setToolTip(tr("transcript.find_tooltip"))
         mode_bar.addWidget(self.btn_find)
         layout.addLayout(mode_bar)
 
@@ -126,17 +128,17 @@ class TranscriptView(QFrame):
         find_layout.setSpacing(4)
 
         self.txt_find = QLineEdit()
-        self.txt_find.setPlaceholderText("Find in transcript")
+        self.txt_find.setPlaceholderText(tr("transcript.find_placeholder"))
         self.txt_find.setClearButtonEnabled(True)
         find_layout.addWidget(self.txt_find, stretch=1)
 
-        self.btn_find_prev = QPushButton("Prev")
-        self.btn_find_prev.setToolTip("Previous match")
+        self.btn_find_prev = QPushButton(tr("transcript.find_prev"))
+        self.btn_find_prev.setToolTip(tr("transcript.find_prev_tooltip"))
         self.btn_find_prev.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         find_layout.addWidget(self.btn_find_prev)
 
-        self.btn_find_next = QPushButton("Next")
-        self.btn_find_next.setToolTip("Next match")
+        self.btn_find_next = QPushButton(tr("transcript.find_next"))
+        self.btn_find_next.setToolTip(tr("transcript.find_next_tooltip"))
         self.btn_find_next.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         find_layout.addWidget(self.btn_find_next)
 
@@ -146,7 +148,7 @@ class TranscriptView(QFrame):
 
         self.btn_find_close = QPushButton()
         self.btn_find_close.setFixedSize(28, 28)
-        self.btn_find_close.setToolTip("Close find bar")
+        self.btn_find_close.setToolTip(tr("transcript.find_close_tooltip"))
         self.btn_find_close.setStyleSheet("padding: 0px;")
         find_layout.addWidget(self.btn_find_close)
 
@@ -155,7 +157,7 @@ class TranscriptView(QFrame):
         # Text stream display
         self.txt_display = QTextEdit()
         self.txt_display.setReadOnly(False)
-        self.txt_display.setPlaceholderText("Transcribed text appears here")
+        self.txt_display.setPlaceholderText(tr("transcript.placeholder"))
         self.txt_display.setMinimumHeight(140)
         layout.addWidget(self.txt_display, stretch=1)
 
@@ -163,48 +165,48 @@ class TranscriptView(QFrame):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
-        self.btn_copy = QPushButton("Copy Text")
+        self.btn_copy = QPushButton(tr("transcript.copy"))
         self.btn_copy.setStyleSheet("padding: 6px 12px;")
         btn_layout.addWidget(self.btn_copy)
 
-        self.btn_export = QPushButton("Export")
+        self.btn_export = QPushButton(tr("transcript.export"))
         self.btn_export.setEnabled(False)
         self.btn_open_docx = self.btn_export  # Compatibility alias
 
         self.export_menu = QMenu(self)
 
-        act_docx = self.export_menu.addAction("Word (.docx)")
-        act_docx.triggered.connect(lambda: self._on_export_format("docx"))
+        self._act_docx = self.export_menu.addAction(tr("transcript.menu_docx"))
+        self._act_docx.triggered.connect(lambda: self._on_export_format("docx"))
 
-        act_pdf = self.export_menu.addAction("PDF (.pdf)")
-        act_pdf.triggered.connect(lambda: self._on_export_format("pdf"))
+        self._act_pdf = self.export_menu.addAction(tr("transcript.menu_pdf"))
+        self._act_pdf.triggered.connect(lambda: self._on_export_format("pdf"))
 
-        act_md = self.export_menu.addAction("Markdown (.md)")
-        act_md.triggered.connect(lambda: self._on_export_format("md"))
+        self._act_md = self.export_menu.addAction(tr("transcript.menu_md"))
+        self._act_md.triggered.connect(lambda: self._on_export_format("md"))
 
-        act_txt = self.export_menu.addAction("Plain Text (.txt)")
-        act_txt.triggered.connect(lambda: self._on_export_format("txt"))
+        self._act_txt = self.export_menu.addAction(tr("transcript.menu_txt"))
+        self._act_txt.triggered.connect(lambda: self._on_export_format("txt"))
 
-        act_srt = self.export_menu.addAction("Subtitles (.srt)")
-        act_srt.triggered.connect(lambda: self._on_export_format("srt"))
+        self._act_srt = self.export_menu.addAction(tr("transcript.menu_srt"))
+        self._act_srt.triggered.connect(lambda: self._on_export_format("srt"))
 
-        act_vtt = self.export_menu.addAction("WebVTT (.vtt)")
-        act_vtt.triggered.connect(lambda: self._on_export_format("vtt"))
+        self._act_vtt = self.export_menu.addAction(tr("transcript.menu_vtt"))
+        self._act_vtt.triggered.connect(lambda: self._on_export_format("vtt"))
 
         self.export_menu.addSeparator()
 
-        act_folder = self.export_menu.addAction("Open Output Folder")
-        act_folder.triggered.connect(self._open_containing_folder)
+        self._act_folder = self.export_menu.addAction(tr("transcript.menu_open_folder"))
+        self._act_folder.triggered.connect(self._open_containing_folder)
 
         self.btn_export.setMenu(self.export_menu)
         btn_layout.addWidget(self.btn_export)
 
-        self.btn_open_folder = QPushButton("Open Folder")
+        self.btn_open_folder = QPushButton(tr("transcript.open_folder"))
         self.btn_open_folder.setStyleSheet("padding: 6px 12px;")
         self.btn_open_folder.setEnabled(False)
         btn_layout.addWidget(self.btn_open_folder)
 
-        self.btn_clear = QPushButton("Clear")
+        self.btn_clear = QPushButton(tr("transcript.clear"))
         self.btn_clear.setStyleSheet("padding: 6px 12px;")
         btn_layout.addWidget(self.btn_clear)
 
@@ -234,6 +236,49 @@ class TranscriptView(QFrame):
         self.btn_open_folder.clicked.connect(self._open_containing_folder)
         self.btn_copy.clicked.connect(self._copy_text)
         self.btn_clear.clicked.connect(self._on_clear_clicked)
+
+    def retranslate_ui(self) -> None:
+        """Update all visible strings to the active application language."""
+        self.lbl_section.setText(tr("transcript.title"))
+        if self._current_track is None:
+            self.lbl_status.setText(tr("transcript.idle"))
+        else:
+            self.lbl_status.setText(
+                display_track_status(self._current_track.status_message, self._current_track.status)
+            )
+        self.btn_view_raw.setText(tr("transcript.raw"))
+        self.btn_view_polished.setText(tr("transcript.polished"))
+        self.btn_polish.setToolTip(tr("transcript.polish_tooltip"))
+        self._update_polish_button_state()
+        if self._polished_text and self._polished_text.strip():
+            info = (
+                tr("transcript.polished_with_model", model=self._polished_model_name)
+                if self._polished_model_name
+                else tr("transcript.polished_with_llm")
+            )
+            self.lbl_view_hint.setText(f"({info})")
+        self.btn_find.setText(tr("transcript.find"))
+        self.btn_find.setToolTip(tr("transcript.find_tooltip"))
+        self.txt_find.setPlaceholderText(tr("transcript.find_placeholder"))
+        self.btn_find_prev.setText(tr("transcript.find_prev"))
+        self.btn_find_prev.setToolTip(tr("transcript.find_prev_tooltip"))
+        self.btn_find_next.setText(tr("transcript.find_next"))
+        self.btn_find_next.setToolTip(tr("transcript.find_next_tooltip"))
+        self.btn_find_close.setToolTip(tr("transcript.find_close_tooltip"))
+        if self.find_bar.isVisible() and self.txt_find.text():
+            self._update_find_status(self.txt_find.text())
+        self.txt_display.setPlaceholderText(tr("transcript.placeholder"))
+        self.btn_copy.setText(tr("transcript.copy"))
+        self.btn_export.setText(tr("transcript.export"))
+        self._act_docx.setText(tr("transcript.menu_docx"))
+        self._act_pdf.setText(tr("transcript.menu_pdf"))
+        self._act_md.setText(tr("transcript.menu_md"))
+        self._act_txt.setText(tr("transcript.menu_txt"))
+        self._act_srt.setText(tr("transcript.menu_srt"))
+        self._act_vtt.setText(tr("transcript.menu_vtt"))
+        self._act_folder.setText(tr("transcript.menu_open_folder"))
+        self.btn_open_folder.setText(tr("transcript.open_folder"))
+        self.btn_clear.setText(tr("transcript.clear"))
 
     def apply_theme(self) -> None:
         """Apply the active theme palette to all transcript view elements."""
@@ -388,11 +433,11 @@ class TranscriptView(QFrame):
             positions.append(idx)
             start = idx + max(1, len(q_lower))
         if not positions:
-            self.lbl_find_status.setText("0 matches")
+            self.lbl_find_status.setText(tr("transcript.find_zero"))
             return
         sel_start = self.txt_display.textCursor().selectionStart()
         match_num = positions.index(sel_start) + 1 if sel_start in positions else 1
-        self.lbl_find_status.setText(f"{match_num} of {len(positions)}")
+        self.lbl_find_status.setText(tr("transcript.find_count", current=match_num, total=len(positions)))
 
     def _on_text_changed(self) -> None:
         if self._updating_text:
@@ -471,16 +516,21 @@ class TranscriptView(QFrame):
         else:
             has_polished = bool(self._polished_text and self._polished_text.strip())
         self.btn_polish.setEnabled(has_raw)
-        self.btn_polish.setText("Re-polish" if has_polished else "Polish")
+        self.btn_polish.setText(tr("transcript.repolish") if has_polished else tr("transcript.polish"))
 
     def set_polished_text(self, text: str, model_name: str = "") -> None:
         """Store polished text and switch view to it."""
         self._polished_text = text
+        self._polished_model_name = model_name
         self.btn_view_polished.setEnabled(bool(text.strip()))
         if text.strip():
             self.btn_view_polished.setChecked(True)
             self._switch_view("polished")
-            info = f"Polished with {model_name}" if model_name else "Polished with LLM"
+            info = (
+                tr("transcript.polished_with_model", model=model_name)
+                if model_name
+                else tr("transcript.polished_with_llm")
+            )
             self.lbl_view_hint.setText(f"({info})")
         self._update_polish_button_state()
 
@@ -518,13 +568,13 @@ class TranscriptView(QFrame):
         """Load a track's transcript, view mode, export state, and status into the viewer."""
         self.clear_view()
         if track is None:
-            self.set_status("Idle")
+            self.set_status(tr("transcript.idle"))
             return
 
         if track.result is None:
             self._current_track = track
             self._current_config = config
-            self.set_status(track.status_message or track.status.value)
+            self.set_status(display_track_status(track.status_message, track.status))
             self.set_progress(track.progress_percent)
             return
 
@@ -540,8 +590,9 @@ class TranscriptView(QFrame):
             self.btn_view_raw.setChecked(True)
             self._switch_view("raw")
 
-        self.set_status(track.status_message or track.status.value)
-        self.set_progress(track.progress_percent or 100, track.status_message)
+        status_text = display_track_status(track.status_message, track.status)
+        self.set_status(status_text)
+        self.set_progress(track.progress_percent or 100, status_text)
 
     def set_completed_track(
         self,
@@ -586,8 +637,8 @@ class TranscriptView(QFrame):
         if has_content:
             reply = QMessageBox.question(
                 self,
-                "Clear Transcript",
-                "Are you sure you want to clear the transcript? Any unsaved text will be removed.",
+                tr("transcript.clear_title"),
+                tr("transcript.clear_body"),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -599,6 +650,7 @@ class TranscriptView(QFrame):
         """Clear transcription output and reset progress."""
         self._raw_segments.clear()
         self._polished_text = None
+        self._polished_model_name = ""
         self._active_mode = "raw"
         self._raw_edited = False
         self._raw_edited_text = None
@@ -616,7 +668,7 @@ class TranscriptView(QFrame):
             self._updating_text = False
         self.lbl_find_status.setText("")
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Idle")
+        self.lbl_status.setText(tr("transcript.idle"))
         self.lbl_metrics.setText("")
         self.lbl_view_hint.setText("")
         self.btn_view_raw.setChecked(True)
@@ -633,9 +685,9 @@ class TranscriptView(QFrame):
             if existing_path and existing_path.exists():
                 success = open_path_in_os(existing_path)
                 if success:
-                    self.lbl_status.setText(f"Opened {existing_path.name}")
+                    self.lbl_status.setText(tr("transcript.status_opened", name=existing_path.name))
                 else:
-                    self.lbl_status.setText(f"Saved {existing_path.name}")
+                    self.lbl_status.setText(tr("transcript.status_saved", name=existing_path.name))
                 return
 
             # 2. Determine target path
@@ -680,11 +732,11 @@ class TranscriptView(QFrame):
             # 4. Open with default OS viewer
             success = open_path_in_os(saved_path)
             if success:
-                self.lbl_status.setText(f"Exported and opened {saved_path.name}")
+                self.lbl_status.setText(tr("transcript.status_exported_opened", name=saved_path.name))
             else:
-                self.lbl_status.setText(f"Exported to {saved_path.name}")
+                self.lbl_status.setText(tr("transcript.status_exported", name=saved_path.name))
         except Exception as e:
-            self.lbl_status.setText(f"Export error: {e}")
+            self.lbl_status.setText(tr("transcript.status_export_error", error=e))
 
     def _open_docx_file(self) -> None:
         self._on_export_format("docx")
@@ -709,12 +761,12 @@ class TranscriptView(QFrame):
             elif p.parent.exists():
                 open_path_in_os(p.parent)
             else:
-                self.lbl_status.setText(f"Directory not found: {p}")
+                self.lbl_status.setText(tr("transcript.status_dir_not_found", path=p))
         else:
-            self.lbl_status.setText("No output folder available")
+            self.lbl_status.setText(tr("transcript.status_no_folder"))
 
     def _copy_text(self) -> None:
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(self.txt_display.toPlainText())
-            self.lbl_status.setText("Copied to clipboard")
+            self.lbl_status.setText(tr("transcript.status_copied"))

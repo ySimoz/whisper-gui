@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from whisper_gui.audio_utils import CancelledError, slice_audio
 from whisper_gui.exporters import export_transcript
+from whisper_gui.i18n import tr
 from whisper_gui.llm_cleaner import load_instructions, polish_transcript
 from whisper_gui.models import (
     AudioTrack,
@@ -65,7 +66,7 @@ class TranscriptionWorker(QThread):
         try:
             for track in self.tracks:
                 if self.should_stop():
-                    self.status_updated.emit(track.id, "Transcription stopped")
+                    self.status_updated.emit(track.id, tr("worker.stopped"))
                     track.status = TrackStatus.CANCELLED
                     self.cancelled.emit()
                     return
@@ -97,7 +98,7 @@ class TranscriptionWorker(QThread):
 
         try:
             # 2. Slice audio with ffmpeg
-            self.status_updated.emit(track.id, "Slicing audio with ffmpeg...")
+            self.status_updated.emit(track.id, tr("worker.slicing"))
             slice_audio(
                 input_path=track.file_path,
                 output_path=temp_wav_path,
@@ -113,7 +114,9 @@ class TranscriptionWorker(QThread):
 
             # 3. Transcribe with faster-whisper
             track.status = TrackStatus.TRANSCRIBING
-            self.status_updated.emit(track.id, f"Transcribing with {self.config.model_name}...")
+            self.status_updated.emit(
+                track.id, tr("worker.transcribing_model", model=self.config.model_name)
+            )
 
             def handle_segment(seg: TranscriptSegment) -> None:
                 self.segment_received.emit(track.id, seg)
@@ -147,7 +150,7 @@ class TranscriptionWorker(QThread):
             if llm_cfg.enabled and llm_cfg.api_key.strip():
                 try:
                     self.status_updated.emit(
-                        track.id, f"Polishing transcript with {llm_cfg.model_name}..."
+                        track.id, tr("worker.polishing", model=llm_cfg.model_name)
                     )
                     instructions_text, source_name = load_instructions(llm_cfg)
                     result.llm_model_used = llm_cfg.model_name
@@ -160,7 +163,7 @@ class TranscriptionWorker(QThread):
                         cancel_check=self.should_stop,
                     )
                     result.polished_text = polished
-                    self.status_updated.emit(track.id, "Transcript polished successfully.")
+                    self.status_updated.emit(track.id, tr("worker.polished"))
                 except InterruptedError:
                     track.status = TrackStatus.CANCELLED
                     self.cancelled.emit()
@@ -169,7 +172,7 @@ class TranscriptionWorker(QThread):
                     logger.warning("LLM polishing failed: %s", llm_err)
                     result.llm_error = str(llm_err)
                     self.status_updated.emit(
-                        track.id, f"LLM polish warning: {llm_err} (exporting raw transcript)"
+                        track.id, tr("worker.polish_warning", error=llm_err)
                     )
 
             if self.should_stop():
@@ -180,7 +183,7 @@ class TranscriptionWorker(QThread):
             # 4. Auto-export if configured
             fmt = getattr(self.config, "export_format", "docx").lower()
             if getattr(self.config, "auto_export", True):
-                self.status_updated.emit(track.id, f"Exporting {fmt.upper()} document...")
+                self.status_updated.emit(track.id, tr("worker.exporting", fmt=fmt.upper()))
                 if fmt == "docx":
                     dest_path = track.effective_docx_path(self.config.output_dir)
                 else:
@@ -203,27 +206,27 @@ class TranscriptionWorker(QThread):
                     result.md_path = final_path
                 elif fmt == "txt":
                     result.txt_path = final_path
-                self.status_updated.emit(track.id, f"Saved document to {final_path.name}")
+                self.status_updated.emit(track.id, tr("worker.saved_doc", name=final_path.name))
             else:
-                self.status_updated.emit(track.id, "Transcription completed (ready to export)")
+                self.status_updated.emit(track.id, tr("worker.completed_no_export"))
 
             track.result = result
             track.status = TrackStatus.COMPLETED
             track.progress_percent = 100
-            track.status_message = f"Completed ({result.speed_factor:.1f}x real-time)"
+            track.status_message = tr("worker.completed_speed", factor=result.speed_factor)
             self.track_completed.emit(track.id, result)
 
         except CancelledError:
             track.status = TrackStatus.CANCELLED
             track.status_message = "Cancelled"
-            self.status_updated.emit(track.id, "Cancelled by user")
+            self.status_updated.emit(track.id, tr("worker.cancelled_by_user"))
             self.cancelled.emit()
 
         except Exception as exc:
             track.status = TrackStatus.ERROR
             err_msg = str(exc)
             track.error_message = err_msg
-            track.status_message = f"Error: {err_msg}"
+            track.status_message = tr("worker.error_prefix", error=err_msg)
             self.track_error.emit(track.id, err_msg)
 
         finally:
@@ -266,7 +269,7 @@ class PolishWorker(QThread):
         """Execute LLM polishing on the track's existing transcript."""
         result = self.track.result
         if not result:
-            self.failed.emit(self.track.id, "No transcription result available to polish.")
+            self.failed.emit(self.track.id, tr("worker.no_result_to_polish"))
             return
 
         raw_text = (result.full_text or "").strip()
@@ -274,7 +277,7 @@ class PolishWorker(QThread):
             raw_text = " ".join(s.text for s in result.segments if s.text).strip()
 
         if not raw_text:
-            self.failed.emit(self.track.id, "Transcript has no text to polish.")
+            self.failed.emit(self.track.id, tr("worker.no_text_to_polish"))
             return
 
         if self.should_stop():

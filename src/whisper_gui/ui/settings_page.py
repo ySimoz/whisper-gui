@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from whisper_gui.i18n import tr
 from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import get_palette, load_ui_icon
@@ -70,13 +71,13 @@ class SettingsPageWidget(QWidget):
         nav_layout.setSpacing(12)
         nav_layout.setAlignment(Qt.AlignVCenter)
 
-        self.btn_back = QPushButton("Back to Transcribe")
+        self.btn_back = QPushButton(tr("settings_page.back"))
         self.btn_back.setIconSize(QSize(16, 16))
         self.btn_back.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_back.clicked.connect(self.back_requested.emit)
         nav_layout.addWidget(self.btn_back)
 
-        self.page_title = QLabel("Settings")
+        self.page_title = QLabel(tr("settings_page.title"))
         nav_layout.addWidget(self.page_title)
 
         nav_layout.addStretch()
@@ -132,6 +133,11 @@ class SettingsPageWidget(QWidget):
                 child.installEventFilter(self.wheel_filter)
 
         self.apply_theme()
+
+    def retranslate_ui(self) -> None:
+        """Update static labels to the active application language."""
+        self.btn_back.setText(tr("settings_page.back"))
+        self.page_title.setText(tr("settings_page.title"))
 
     def apply_theme(self) -> None:
         """Apply the active palette to the settings page container and cards."""

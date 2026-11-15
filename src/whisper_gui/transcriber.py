@@ -13,6 +13,7 @@ from pathlib import Path
 from faster_whisper import WhisperModel
 
 from whisper_gui.audio_utils import CancelledError
+from whisper_gui.i18n import tr
 from whisper_gui.models import TranscriptSegment, TranscriptionConfig, TranscriptionResult
 
 MODEL_RAM_ESTIMATES = {
@@ -122,7 +123,7 @@ class Transcriber:
         # macOS compatibility: CTranslate2 on macOS uses CPU with Accelerate/NEON vectorization
         if sys.platform == "darwin" and device.lower() == "cuda":
             if on_status is not None:
-                on_status("CUDA is not supported on macOS. Switching automatically to CPU...")
+                on_status(tr("transcriber.cuda_macos"))
             device = "cpu"
             if compute_type in ("float16", "int8_float16"):
                 compute_type = "int8"
@@ -133,8 +134,16 @@ class Transcriber:
 
         if on_status is not None:
             is_cached = is_model_downloaded_on_disk(model_name)
-            desc = "local disk" if is_cached else "HuggingFace (downloading first time)"
-            on_status(f"Loading '{model_name}' from {desc} on {device} ({compute_type})...")
+            desc = tr("transcriber.source_disk") if is_cached else tr("transcriber.source_hf")
+            on_status(
+                tr(
+                    "transcriber.loading_model",
+                    model=model_name,
+                    source=desc,
+                    device=device,
+                    compute=compute_type,
+                )
+            )
 
         # Unload previous model before loading new one to avoid double RAM usage
         self.unload_model()
@@ -181,7 +190,7 @@ class Transcriber:
             raise CancelledError("Transcription cancelled before starting")
 
         if on_status is not None:
-            on_status("Transcribing audio...")
+            on_status(tr("transcriber.transcribing"))
 
         start_time = time.time()
         audio_path_str = str(Path(audio_file).resolve())
@@ -196,7 +205,13 @@ class Transcriber:
         )
 
         if on_status is not None:
-            on_status(f"Transcribing (Language: {info.language}, prob: {info.language_probability:.2f})...")
+            on_status(
+                tr(
+                    "transcriber.transcribing_lang",
+                    lang=info.language,
+                    prob=info.language_probability,
+                )
+            )
 
         recorded_segments: list[TranscriptSegment] = []
         full_text_pieces: list[str] = []

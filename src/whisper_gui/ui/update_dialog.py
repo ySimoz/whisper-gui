@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui import __version__
+from whisper_gui.i18n import tr
 from whisper_gui.platform_utils import is_bundled, reveal_file_in_os
 from whisper_gui.ui.theme import build_stylesheet, fixed_mono_font, get_palette
 from whisper_gui.updater import (
@@ -72,7 +73,7 @@ class UpdateInstallWorker(QThread):
 
     def run(self) -> None:
         if not self.release.download_url:
-            self.failed.emit("No downloadable package found for this operating system.")
+            self.failed.emit(tr("update.no_asset"))
             return
 
         stage_dir = Path(tempfile.mkdtemp(prefix="whisper_gui_update_"))
@@ -80,7 +81,7 @@ class UpdateInstallWorker(QThread):
         archive_path = stage_dir / archive_name
 
         try:
-            self.status_changed.emit(f"Downloading {archive_name}...")
+            self.status_changed.emit(tr("update.downloading_file", name=archive_name))
             download_release_asset(
                 self.release.download_url,
                 archive_path,
@@ -88,7 +89,7 @@ class UpdateInstallWorker(QThread):
                 cancel_check=lambda: self._cancel_requested or self.isInterruptionRequested(),
             )
 
-            self.status_changed.emit("Extracting update...")
+            self.status_changed.emit(tr("update.extracting"))
             extract_dir = stage_dir / "extracted"
             extracted_app = extract_release_archive(archive_path, extract_dir)
             archive_path.unlink(missing_ok=True)
@@ -98,7 +99,7 @@ class UpdateInstallWorker(QThread):
                 self.permission_fallback.emit(str(extracted_app))
                 return
 
-            self.status_changed.emit("Installing and relaunching...")
+            self.status_changed.emit(tr("update.installing"))
             apply_update_and_relaunch(extracted_app, target)
             self.relaunch_ready.emit()
         except InterruptedError:
@@ -116,7 +117,7 @@ class UpdateDialog(QDialog):
         self._worker: UpdateInstallWorker | None = None
         self._can_self_update = is_bundled() and bool(release.download_url)
 
-        self.setWindowTitle("Update Available")
+        self.setWindowTitle(tr("update.window_title"))
         self.setMinimumSize(500, 380)
         self.resize(540, 420)
         p = get_palette()
@@ -138,7 +139,7 @@ class UpdateDialog(QDialog):
         layout.setSpacing(12)
 
         header_row = QHBoxLayout()
-        title = QLabel("New Version Available")
+        title = QLabel(tr("update.heading"))
         title.setStyleSheet(f"color: {p.text_main}; font-size: 14px; font-weight: 500;")
         header_row.addWidget(title)
         header_row.addStretch()
@@ -158,7 +159,7 @@ class UpdateDialog(QDialog):
         header_row.addWidget(version_badge)
         layout.addLayout(header_row)
 
-        changelog_label = QLabel("Changelog")
+        changelog_label = QLabel(tr("update.changelog"))
         changelog_label.setStyleSheet(f"color: {p.text_muted}; font-weight: 500; font-size: 12px;")
         layout.addWidget(changelog_label)
 
@@ -174,7 +175,7 @@ class UpdateDialog(QDialog):
                 font-size: 12px;
             }}
         """)
-        self.txt_changelog.setMarkdown(self.release.changelog or "No changelog provided for this release.")
+        self.txt_changelog.setMarkdown(self.release.changelog or tr("update.no_changelog"))
         layout.addWidget(self.txt_changelog, stretch=1)
 
         self.lbl_status = QLabel("")
@@ -193,11 +194,11 @@ class UpdateDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
-        self.btn_cancel = QPushButton("Cancel", self)
+        self.btn_cancel = QPushButton(tr("update.cancel"), self)
         self.btn_cancel.clicked.connect(self._on_cancel_clicked)
         btn_row.addWidget(self.btn_cancel)
 
-        action_label = "Update Now" if self._can_self_update else "Download on GitHub"
+        action_label = tr("update.update_now") if self._can_self_update else tr("update.download_github")
         self.btn_update = QPushButton(action_label, self)
         self.btn_update.setDefault(True)
         self.btn_update.setStyleSheet(f"""
@@ -233,7 +234,7 @@ class UpdateDialog(QDialog):
             return
 
         self.btn_update.setEnabled(False)
-        self.lbl_status.setText("Starting download...")
+        self.lbl_status.setText(tr("update.starting_download"))
         self.lbl_status.show()
         self.progress_bar.setRange(0, 0)  # Indeterminate until Content-Length arrives
         self.progress_bar.show()
@@ -248,7 +249,7 @@ class UpdateDialog(QDialog):
 
     def _on_cancel_clicked(self) -> None:
         if self._worker and self._worker.isRunning():
-            self.lbl_status.setText("Cancelling download...")
+            self.lbl_status.setText(tr("update.cancelling_download"))
             self.btn_cancel.setEnabled(False)
             self._worker.request_cancel()
             return
@@ -262,10 +263,10 @@ class UpdateDialog(QDialog):
             self.progress_bar.setValue(pct)
             mb_done = downloaded / (1024 * 1024)
             mb_total = total / (1024 * 1024)
-            self.lbl_status.setText(f"Downloading... {mb_done:.1f} / {mb_total:.1f} MB ({pct}%)")
+            self.lbl_status.setText(tr("update.downloading_pct", done=mb_done, total=mb_total, pct=pct))
         else:
             mb_done = downloaded / (1024 * 1024)
-            self.lbl_status.setText(f"Downloading... {mb_done:.1f} MB")
+            self.lbl_status.setText(tr("update.downloading_mb", done=mb_done))
 
     def _on_relaunch_ready(self) -> None:
         self._worker = None
@@ -277,13 +278,12 @@ class UpdateDialog(QDialog):
     def _on_permission_fallback(self, extracted_path: str) -> None:
         self._worker = None
         self.progress_bar.hide()
-        self.lbl_status.setText("Folder requires admin rights. Opening downloaded update...")
+        self.lbl_status.setText(tr("update.admin_required"))
         reveal_file_in_os(extracted_path)
         QMessageBox.information(
             self,
-            "Manual Replace Needed",
-            f"Whisper GUI cannot overwrite its current folder automatically.\n\n"
-            f"Replace the app using the opened file:\n{extracted_path}",
+            tr("update.manual_title"),
+            tr("update.manual_body", path=extracted_path),
         )
         self.accept()
 
@@ -294,11 +294,11 @@ class UpdateDialog(QDialog):
         self.btn_cancel.setEnabled(True)
 
         if error_msg == "cancelled":
-            self.lbl_status.setText("Update cancelled.")
+            self.lbl_status.setText(tr("update.cancelled"))
             return
 
-        self.lbl_status.setText(f"Update failed: {error_msg}")
-        QMessageBox.warning(self, "Update Failed", f"Could not complete update:\n{error_msg}")
+        self.lbl_status.setText(tr("update.failed_status", error=error_msg))
+        QMessageBox.warning(self, tr("update.failed_title"), tr("update.failed_body", error=error_msg))
 
     def closeEvent(self, event) -> None:
         if self._worker and self._worker.isRunning():

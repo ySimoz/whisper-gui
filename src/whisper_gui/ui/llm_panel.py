@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui.credentials import load_api_key, store_api_key
+from whisper_gui.i18n import tr
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
     PROVIDER_PRESETS,
@@ -42,7 +43,7 @@ class InstructionEditorDialog(QDialog):
 
     def __init__(self, current_text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Transcript Polishing Instructions")
+        self.setWindowTitle(tr("llm.editor_title"))
         self.resize(650, 480)
         self.modified_text = current_text
 
@@ -58,6 +59,12 @@ class InstructionEditorDialog(QDialog):
         layout.addWidget(self.editor)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok_btn = btn_box.button(QDialogButtonBox.Ok)
+        cancel_btn = btn_box.button(QDialogButtonBox.Cancel)
+        if ok_btn is not None:
+            ok_btn.setText(tr("llm.editor_ok"))
+        if cancel_btn is not None:
+            cancel_btn.setText(tr("llm.editor_cancel"))
         btn_box.accepted.connect(self._on_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -81,15 +88,18 @@ class LLMPanel(QWidget):
         self._conn_state: str | None = None  # "ok", "err", or None
         self._section_labels: list[QLabel] = []
         self._field_labels: list[QLabel] = []
+        self._section_label_keys: list[tuple[QLabel, str]] = []
+        self._field_label_keys: list[tuple[QLabel, str]] = []
 
         self._build_ui()
         self.apply_theme()
         self._on_provider_changed("DeepSeek")
         self._update_enabled_states()
 
-    def _make_field_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+    def _make_field_label(self, key: str) -> QLabel:
+        lbl = QLabel(tr(key))
         self._field_labels.append(lbl)
+        self._field_label_keys.append((lbl, key))
         return lbl
 
     def _build_ui(self) -> None:
@@ -97,11 +107,12 @@ class LLMPanel(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(12)
 
-        sec_hdr = QLabel("Transcript Polishing")
+        sec_hdr = QLabel(tr("llm.sec_title"))
         self._section_labels.append(sec_hdr)
+        self._section_label_keys.append((sec_hdr, "llm.sec_title"))
         main_layout.addWidget(sec_hdr)
 
-        self.chk_enable = ToggleSwitch("Enable transcript polishing")
+        self.chk_enable = ToggleSwitch(tr("llm.chk_enable"))
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
         main_layout.addWidget(self.chk_enable)
 
@@ -114,17 +125,19 @@ class LLMPanel(QWidget):
         ctrl_layout.setSpacing(12)
 
         # Provider
-        ctrl_layout.addWidget(self._make_field_label("Provider"))
+        ctrl_layout.addWidget(self._make_field_label("llm.provider"))
 
         self.combo_provider = QComboBox()
         self.combo_provider.setView(QListView())
-        self.combo_provider.addItems(["DeepSeek", "Anthropic (Claude)", "OpenAI", "Groq", "Custom"])
+        for provider_id in ("DeepSeek", "Anthropic (Claude)", "OpenAI", "Groq", "Custom"):
+            label = tr("llm.provider_custom") if provider_id == "Custom" else provider_id
+            self.combo_provider.addItem(label, provider_id)
         self.combo_provider.setFixedHeight(36)
-        self.combo_provider.currentTextChanged.connect(self._on_provider_changed)
+        self.combo_provider.currentIndexChanged.connect(self._on_provider_index_changed)
         ctrl_layout.addWidget(self.combo_provider)
 
         # Model Name
-        ctrl_layout.addWidget(self._make_field_label("Model Name"))
+        ctrl_layout.addWidget(self._make_field_label("llm.model_name"))
 
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
@@ -134,7 +147,7 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.combo_model)
 
         # Base URL
-        ctrl_layout.addWidget(self._make_field_label("API Base URL"))
+        ctrl_layout.addWidget(self._make_field_label("llm.base_url"))
 
         self.txt_base_url = QLineEdit()
         self.txt_base_url.setFixedHeight(36)
@@ -143,24 +156,24 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.txt_base_url)
 
         # API Key
-        ctrl_layout.addWidget(self._make_field_label("API Key"))
+        ctrl_layout.addWidget(self._make_field_label("llm.api_key"))
 
         key_box = QHBoxLayout()
         key_box.setSpacing(8)
         self.txt_api_key = QLineEdit()
         self.txt_api_key.setFixedHeight(36)
         self.txt_api_key.setEchoMode(QLineEdit.Password)
-        self.txt_api_key.setPlaceholderText("Paste API key")
+        self.txt_api_key.setPlaceholderText(tr("llm.api_key_placeholder"))
         self.txt_api_key.textChanged.connect(self._on_setting_changed)
         key_box.addWidget(self.txt_api_key, stretch=1)
 
-        self.btn_toggle_key = QPushButton("Show")
+        self.btn_toggle_key = QPushButton(tr("llm.show_btn"))
         self.btn_toggle_key.setFixedHeight(36)
-        self.btn_toggle_key.setFixedWidth(64)
+        self.btn_toggle_key.setFixedWidth(76)
         self.btn_toggle_key.clicked.connect(self._toggle_key_visibility)
         key_box.addWidget(self.btn_toggle_key)
 
-        self.btn_test_conn = QPushButton("Test Connection")
+        self.btn_test_conn = QPushButton(tr("llm.test_conn_btn"))
         self.btn_test_conn.setFixedHeight(36)
         self.btn_test_conn.clicked.connect(self._test_connection)
         key_box.addWidget(self.btn_test_conn)
@@ -172,25 +185,25 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.lbl_conn_status)
 
         # Prompt Instructions
-        ctrl_layout.addWidget(self._make_field_label("Custom Instructions Prompt"))
+        ctrl_layout.addWidget(self._make_field_label("llm.custom_prompt"))
 
-        self.lbl_active_prompt = QLabel("Active: Default (Speech Polisher)")
+        self.lbl_active_prompt = QLabel(tr("llm.active_default"))
         ctrl_layout.addWidget(self.lbl_active_prompt)
 
         prompt_btn_row = QHBoxLayout()
         prompt_btn_row.setSpacing(8)
 
-        self.btn_view_edit = QPushButton("View / Edit Prompt")
+        self.btn_view_edit = QPushButton(tr("llm.view_edit_btn"))
         self.btn_view_edit.setFixedHeight(32)
         self.btn_view_edit.clicked.connect(self._view_edit_instructions)
         prompt_btn_row.addWidget(self.btn_view_edit)
 
-        self.btn_import_md = QPushButton("Import .md File")
+        self.btn_import_md = QPushButton(tr("llm.import_md_btn"))
         self.btn_import_md.setFixedHeight(32)
         self.btn_import_md.clicked.connect(self._import_md_file)
         prompt_btn_row.addWidget(self.btn_import_md)
 
-        self.btn_reset_default = QPushButton("Reset to Default")
+        self.btn_reset_default = QPushButton(tr("llm.reset_default_btn"))
         self.btn_reset_default.setFixedHeight(32)
         self.btn_reset_default.clicked.connect(self._reset_instructions)
         prompt_btn_row.addWidget(self.btn_reset_default)
@@ -198,7 +211,7 @@ class LLMPanel(QWidget):
         prompt_btn_row.addStretch()
         ctrl_layout.addLayout(prompt_btn_row)
 
-        self.chk_raw_appendix = ToggleSwitch("Include raw transcript in Word document")
+        self.chk_raw_appendix = ToggleSwitch(tr("llm.chk_raw_appendix"))
         self.chk_raw_appendix.setChecked(True)
         self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
         ctrl_layout.addWidget(self.chk_raw_appendix)
@@ -230,6 +243,49 @@ class LLMPanel(QWidget):
             self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         self._update_enabled_states()
 
+    def retranslate_ui(self) -> None:
+        """Update all visible strings to the active application language."""
+        for lbl, key in self._section_label_keys:
+            lbl.setText(tr(key))
+        for lbl, key in self._field_label_keys:
+            lbl.setText(tr(key))
+        self.chk_enable.setText(tr("llm.chk_enable"))
+
+        self.combo_provider.blockSignals(True)
+        for i in range(self.combo_provider.count()):
+            if self.combo_provider.itemData(i) == "Custom":
+                self.combo_provider.setItemText(i, tr("llm.provider_custom"))
+        self.combo_provider.blockSignals(False)
+
+        self.txt_api_key.setPlaceholderText(tr("llm.api_key_placeholder"))
+        self.btn_toggle_key.setText(
+            tr("llm.hide_btn") if self.txt_api_key.echoMode() == QLineEdit.Normal else tr("llm.show_btn")
+        )
+        self.btn_test_conn.setText(tr("llm.test_conn_btn"))
+        self._refresh_active_prompt_label()
+        self.btn_view_edit.setText(tr("llm.view_edit_btn"))
+        self.btn_import_md.setText(tr("llm.import_md_btn"))
+        self.btn_reset_default.setText(tr("llm.reset_default_btn"))
+        self.chk_raw_appendix.setText(tr("llm.chk_raw_appendix"))
+        self._update_enabled_states()
+
+    def _refresh_active_prompt_label(self) -> None:
+        if self._custom_instruction_path and self._custom_instruction_text is not None:
+            if self._custom_instruction_path.is_file() and self._custom_instruction_text == self._custom_instruction_path.read_text(encoding="utf-8", errors="replace"):
+                self.lbl_active_prompt.setText(tr("llm.active_file", name=self._custom_instruction_path.name))
+            else:
+                self.lbl_active_prompt.setText(tr("llm.active_custom_file", name=self._custom_instruction_path.name))
+        elif self._custom_instruction_path and Path(self._custom_instruction_path).is_file():
+            self.lbl_active_prompt.setText(tr("llm.active_file", name=Path(self._custom_instruction_path).name))
+        elif self._custom_instruction_text:
+            self.lbl_active_prompt.setText(tr("llm.active_custom_instructions"))
+        else:
+            self.lbl_active_prompt.setText(tr("llm.active_default"))
+
+    def _on_provider_index_changed(self, _index: int) -> None:
+        provider = str(self.combo_provider.currentData() or self.combo_provider.currentText())
+        self._on_provider_changed(provider)
+
     def _on_toggle_enabled(self, checked: bool) -> None:
         self._update_enabled_states()
         self.config_changed.emit()
@@ -241,12 +297,12 @@ class LLMPanel(QWidget):
         p = get_palette()
         if hasattr(self, "lbl_workflow_status"):
             if enabled:
-                self.lbl_workflow_status.setText("Enabled for transcriptions")
+                self.lbl_workflow_status.setText(tr("llm.workflow_enabled"))
                 self.lbl_workflow_status.setStyleSheet(
                     f"color: {p.secondary}; font-weight: bold; font-size: 11px;"
                 )
             else:
-                self.lbl_workflow_status.setText("Disabled (configure & test anytime)")
+                self.lbl_workflow_status.setText(tr("llm.workflow_disabled"))
                 self.lbl_workflow_status.setStyleSheet(
                     f"color: {p.text_muted}; font-size: 11px;"
                 )
@@ -278,17 +334,17 @@ class LLMPanel(QWidget):
     def _toggle_key_visibility(self) -> None:
         if self.txt_api_key.echoMode() == QLineEdit.Password:
             self.txt_api_key.setEchoMode(QLineEdit.Normal)
-            self.btn_toggle_key.setText("Hide")
+            self.btn_toggle_key.setText(tr("llm.hide_btn"))
         else:
             self.txt_api_key.setEchoMode(QLineEdit.Password)
-            self.btn_toggle_key.setText("Show")
+            self.btn_toggle_key.setText(tr("llm.show_btn"))
 
     def _test_connection(self) -> None:
         cfg = self.get_config()
         p = get_palette()
         self._conn_state = None
         self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 11px;")
-        self.lbl_conn_status.setText("Connecting to LLM API...")
+        self.lbl_conn_status.setText(tr("llm.connecting"))
         self.btn_test_conn.setEnabled(False)
 
         try:
@@ -311,9 +367,9 @@ class LLMPanel(QWidget):
     def _import_md_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Markdown Instruction File",
+            tr("llm.import_title"),
             "",
-            "Markdown Files (*.md *.markdown *.txt);;All Files (*)",
+            tr("llm.import_filter"),
         )
         if not file_path:
             return
@@ -323,18 +379,18 @@ class LLMPanel(QWidget):
             content = p.read_text(encoding="utf-8")
             self._custom_instruction_path = p
             self._custom_instruction_text = content
-            self.lbl_active_prompt.setText(f"Active: File: {p.name}")
+            self.lbl_active_prompt.setText(tr("llm.active_file", name=p.name))
             self.config_changed.emit()
             QMessageBox.information(
                 self,
-                "Instructions Loaded",
-                f"Successfully loaded polishing instructions from '{p.name}'.",
+                tr("llm.import_ok_title"),
+                tr("llm.import_ok_body", name=p.name),
             )
         except Exception as e:
             QMessageBox.critical(
                 self,
-                "Error Loading File",
-                f"Failed to read file '{p.name}':\n{e}",
+                tr("llm.import_err_title"),
+                tr("llm.import_err_body", name=p.name, error=e),
             )
 
     def _view_edit_instructions(self) -> None:
@@ -343,23 +399,23 @@ class LLMPanel(QWidget):
         dlg = InstructionEditorDialog(current_text, self)
         if dlg.exec() == QDialog.Accepted:
             self._custom_instruction_text = dlg.modified_text
-            name = (
-                f"Custom ({self._custom_instruction_path.name})"
-                if self._custom_instruction_path
-                else "Custom Prompt"
-            )
-            self.lbl_active_prompt.setText(f"Active: {name}")
+            if self._custom_instruction_path:
+                self.lbl_active_prompt.setText(
+                    tr("llm.active_custom_file", name=self._custom_instruction_path.name)
+                )
+            else:
+                self.lbl_active_prompt.setText(tr("llm.active_custom_prompt"))
             self.config_changed.emit()
 
     def _reset_instructions(self) -> None:
         self._custom_instruction_path = None
         self._custom_instruction_text = None
-        self.lbl_active_prompt.setText("Active: Default (Speech Polisher)")
+        self.lbl_active_prompt.setText(tr("llm.active_default"))
         self.config_changed.emit()
 
     def get_config(self) -> LLMConfig:
         raw_model = self.combo_model.currentText().strip() or "DeepSeek V4.1 Flash"
-        provider = self.combo_provider.currentText()
+        provider = str(self.combo_provider.currentData() or self.combo_provider.currentText())
         normalized_model = normalize_model_name(provider, raw_model)
         return LLMConfig(
             enabled=self.chk_enable.isChecked(),
@@ -374,11 +430,13 @@ class LLMPanel(QWidget):
 
     def set_config(self, cfg: LLMConfig) -> None:
         self.chk_enable.setChecked(cfg.enabled)
-        idx = self.combo_provider.findText(cfg.provider)
+        idx = self.combo_provider.findData(cfg.provider)
+        if idx < 0:
+            idx = self.combo_provider.findText(cfg.provider)
         if idx >= 0:
             self.combo_provider.setCurrentIndex(idx)
         elif "claude" in cfg.provider.lower() or "anthropic" in cfg.provider.lower():
-            idx = self.combo_provider.findText("Anthropic (Claude)")
+            idx = self.combo_provider.findData("Anthropic (Claude)")
             if idx >= 0:
                 self.combo_provider.setCurrentIndex(idx)
 
@@ -408,12 +466,12 @@ class LLMPanel(QWidget):
         self._custom_instruction_text = cfg.custom_instructions_text
         if cfg.instruction_file and Path(cfg.instruction_file).is_file():
             self.lbl_active_prompt.setText(
-                f"Active: File: {Path(cfg.instruction_file).name}"
+                tr("llm.active_file", name=Path(cfg.instruction_file).name)
             )
         elif cfg.custom_instructions_text:
-            self.lbl_active_prompt.setText("Active: Custom Instructions")
+            self.lbl_active_prompt.setText(tr("llm.active_custom_instructions"))
         else:
-            self.lbl_active_prompt.setText("Active: Default (Speech Polisher)")
+            self.lbl_active_prompt.setText(tr("llm.active_default"))
 
         self._update_enabled_states()
 
@@ -421,7 +479,7 @@ class LLMPanel(QWidget):
         """Persist user LLM preferences and API key."""
         settings.beginGroup("LLM")
         settings.setValue("enabled", self.chk_enable.isChecked())
-        settings.setValue("provider", self.combo_provider.currentText())
+        settings.setValue("provider", str(self.combo_provider.currentData() or self.combo_provider.currentText()))
         settings.setValue("model_name", self.combo_model.currentText())
         settings.setValue("base_url", self.txt_base_url.text().strip())
         settings.setValue("include_raw_docx", self.chk_raw_appendix.isChecked())

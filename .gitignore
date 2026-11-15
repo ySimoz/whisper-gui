@@ -32,3 +32,5 @@ Thumbs.db
 # Local settings / secrets
 test_settings*.ini
 *.env
+
+graphify-out/

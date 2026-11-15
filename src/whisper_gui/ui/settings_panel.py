@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui import __version__
+from whisper_gui.i18n import SUPPORTED_APP_LANGUAGES, get_language, tr
 from whisper_gui.models import TranscriptionConfig
 from whisper_gui.transcriber import (
     delete_cached_model,
@@ -51,6 +52,22 @@ SUPPORTED_LANGUAGES = [
     ("Polish (pl)", "pl"),
 ]
 
+_LANGUAGE_KEY_MAP: dict[str | None, str] = {
+    None: "settings.lang_auto",
+    "it": "settings.lang_it",
+    "en": "settings.lang_en",
+    "es": "settings.lang_es",
+    "fr": "settings.lang_fr",
+    "de": "settings.lang_de",
+    "pt": "settings.lang_pt",
+    "zh": "settings.lang_zh",
+    "ja": "settings.lang_ja",
+    "ru": "settings.lang_ru",
+    "ar": "settings.lang_ar",
+    "nl": "settings.lang_nl",
+    "pl": "settings.lang_pl",
+}
+
 SUPPORTED_MODELS = [
     ("large-v3-turbo (Highest Accuracy & Speed)", "large-v3-turbo"),
     ("large-v3 (Highest Accuracy)", "large-v3"),
@@ -58,6 +75,24 @@ SUPPORTED_MODELS = [
     ("small (Fast Multilingual)", "small"),
     ("base (Very Fast)", "base"),
     ("tiny (Ultra Fast / Testing)", "tiny"),
+]
+
+_MODEL_KEY_MAP: dict[str, str] = {
+    "large-v3-turbo": "settings.model_large_v3_turbo",
+    "large-v3": "settings.model_large_v3",
+    "medium": "settings.model_medium",
+    "small": "settings.model_small",
+    "base": "settings.model_base",
+    "tiny": "settings.model_tiny",
+}
+
+_EXPORT_FORMAT_KEYS: list[tuple[str, str]] = [
+    ("docx", "settings.fmt_docx"),
+    ("pdf", "settings.fmt_pdf"),
+    ("md", "settings.fmt_md"),
+    ("txt", "settings.fmt_txt"),
+    ("srt", "settings.fmt_srt"),
+    ("vtt", "settings.fmt_vtt"),
 ]
 
 
@@ -91,6 +126,7 @@ class SettingsPanel(QWidget):
     free_ram_requested = Signal()
     check_updates_requested = Signal()
     theme_changed = Signal(str, object)
+    app_language_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -98,22 +134,27 @@ class SettingsPanel(QWidget):
         self.setStyleSheet("#settings_panel { background-color: transparent; }")
         self._custom_output_dir: Path | None = None
         self._ram_loaded = False
+        self._ram_model_name: str | None = None
         self._section_labels: list[QLabel] = []
         self._field_labels: list[QLabel] = []
+        self._section_label_keys: list[tuple[QLabel, str]] = []
+        self._field_label_keys: list[tuple[QLabel, str]] = []
         self._muted_labels: list[QLabel] = []
         self._muted_checks: list[QCheckBox] = []
         self._build_ui()
         self.apply_theme()
         self._update_disk_status()
 
-    def _make_section_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+    def _make_section_label(self, key: str) -> QLabel:
+        lbl = QLabel(tr(key))
         self._section_labels.append(lbl)
+        self._section_label_keys.append((lbl, key))
         return lbl
 
-    def _make_field_label(self, text: str) -> QLabel:
-        lbl = QLabel(text)
+    def _make_field_label(self, key: str) -> QLabel:
+        lbl = QLabel(tr(key))
         self._field_labels.append(lbl)
+        self._field_label_keys.append((lbl, key))
         return lbl
 
     def _build_ui(self) -> None:
@@ -122,15 +163,15 @@ class SettingsPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Appearance
-        layout.addWidget(self._make_section_label("Appearance"))
-        layout.addWidget(self._make_field_label("Color Theme"))
+        layout.addWidget(self._make_section_label("settings.sec_appearance"))
+        layout.addWidget(self._make_field_label("settings.color_theme"))
 
         theme_row = QHBoxLayout()
         theme_row.setSpacing(8)
         self.theme_btn_group = QButtonGroup(self)
         self.theme_btn_group.setExclusive(True)
 
-        self.btn_theme_graphite = QPushButton("Graphite")
+        self.btn_theme_graphite = QPushButton(tr("settings.theme_graphite"))
         self.btn_theme_graphite.setCheckable(True)
         self.btn_theme_graphite.setIcon(swatch_icon("#141415", "#232325", "#3C3C40"))
         self.btn_theme_graphite.setIconSize(QSize(14, 14))
@@ -141,7 +182,7 @@ class SettingsPanel(QWidget):
         self.theme_btn_group.addButton(self.btn_theme_graphite)
         theme_row.addWidget(self.btn_theme_graphite, stretch=1)
 
-        self.btn_theme_blush = QPushButton("Blush Pink")
+        self.btn_theme_blush = QPushButton(tr("settings.theme_blush"))
         self.btn_theme_blush.setCheckable(True)
         self.btn_theme_blush.setIcon(swatch_icon("#F8C8DC", "#F3CFC6", "#C99AAE"))
         self.btn_theme_blush.setIconSize(QSize(14, 14))
@@ -153,135 +194,140 @@ class SettingsPanel(QWidget):
         theme_row.addWidget(self.btn_theme_blush, stretch=1)
 
         layout.addLayout(theme_row)
+
+        layout.addSpacing(4)
+        layout.addWidget(self._make_field_label("settings.app_language"))
+        self.combo_app_language = QComboBox()
+        self.combo_app_language.setView(QListView())
+        for lang_code, lang_label in SUPPORTED_APP_LANGUAGES:
+            self.combo_app_language.addItem(lang_label, lang_code)
+        self.combo_app_language.setFixedHeight(36)
+        self.set_selected_app_language(get_language())
+        layout.addWidget(self.combo_app_language)
+
         layout.addSpacing(12)
 
         # Section 1: Speech Recognition
-        layout.addWidget(self._make_section_label("Speech Recognition"))
-        layout.addWidget(self._make_field_label("Whisper Model"))
+        layout.addWidget(self._make_section_label("settings.sec_recognition"))
+        layout.addWidget(self._make_field_label("settings.whisper_model"))
 
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
         for label, model_id in SUPPORTED_MODELS:
-            self.combo_model.addItem(label, model_id)
+            key = _MODEL_KEY_MAP.get(model_id)
+            self.combo_model.addItem(tr(key) if key else label, model_id)
         self.combo_model.setCurrentIndex(0)
         self.combo_model.setFixedHeight(36)
         layout.addWidget(self.combo_model)
 
         disk_row = QHBoxLayout()
         disk_row.setSpacing(12)
-        self.lbl_disk_status = QLabel("Downloaded locally")
+        self.lbl_disk_status = QLabel(tr("settings.disk_downloaded_short"))
         self._muted_labels.append(self.lbl_disk_status)
         disk_row.addWidget(self.lbl_disk_status, stretch=1)
 
-        self.btn_delete_model = QPushButton("Delete Cached Model")
+        self.btn_delete_model = QPushButton(tr("settings.delete_model_btn"))
         self.btn_delete_model.setFixedHeight(32)
         self.btn_delete_model.setEnabled(False)
         disk_row.addWidget(self.btn_delete_model)
         layout.addLayout(disk_row)
 
         layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("Language"))
+        layout.addWidget(self._make_field_label("settings.transcription_language"))
 
         self.combo_lang = QComboBox()
         self.combo_lang.setView(QListView())
         for label, code in SUPPORTED_LANGUAGES:
-            self.combo_lang.addItem(label, code)
+            key = _LANGUAGE_KEY_MAP.get(code)
+            self.combo_lang.addItem(tr(key) if key else label, code)
         self.combo_lang.setCurrentIndex(0)
         self.combo_lang.setFixedHeight(36)
         layout.addWidget(self.combo_lang)
 
         layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("Inference Device & Compute Type"))
+        layout.addWidget(self._make_field_label("settings.device_compute"))
 
         dev_row = QHBoxLayout()
         dev_row.setSpacing(12)
         self.combo_device = QComboBox()
         self.combo_device.setView(QListView())
         if sys.platform == "darwin":
-            self.combo_device.addItem("CPU (Apple Silicon / Intel)", "cpu")
+            self.combo_device.addItem(tr("settings.device_cpu_mac"), "cpu")
         else:
-            self.combo_device.addItem("CPU", "cpu")
-            self.combo_device.addItem("CUDA (GPU)", "cuda")
+            self.combo_device.addItem(tr("settings.device_cpu"), "cpu")
+            self.combo_device.addItem(tr("settings.device_cuda"), "cuda")
         self.combo_device.setCurrentIndex(0)
         self.combo_device.setFixedHeight(36)
         dev_row.addWidget(self.combo_device, stretch=2)
 
         self.combo_compute = QComboBox()
         self.combo_compute.setView(QListView())
-        self.combo_compute.addItem("int8 (Fastest on CPU)", "int8")
-        self.combo_compute.addItem("float16 (GPU)", "float16")
-        self.combo_compute.addItem("float32", "float32")
+        self.combo_compute.addItem(tr("settings.compute_int8"), "int8")
+        self.combo_compute.addItem(tr("settings.compute_float16"), "float16")
+        self.combo_compute.addItem(tr("settings.compute_float32"), "float32")
         self.combo_compute.setCurrentIndex(0)
         self.combo_compute.setFixedHeight(36)
         dev_row.addWidget(self.combo_compute, stretch=2)
         layout.addLayout(dev_row)
 
         layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("CPU Threads"))
+        layout.addWidget(self._make_field_label("settings.cpu_threads"))
 
         max_cpu = os.cpu_count() or 6
         default_threads = min(6, max_cpu)
         self.spin_threads = ThreadComboBox()
-        for t in range(1, max_cpu + 1):
-            label = f"{t} thread" if t == 1 else f"{t} threads"
-            if t == default_threads:
-                label += " (Recommended)"
-            self.spin_threads.addItem(label, t)
+        self._populate_thread_items(max_cpu, default_threads)
         self.spin_threads.setValue(default_threads)
         self.spin_threads.setFixedHeight(36)
-        self.spin_threads.setToolTip("Number of CPU threads for inference")
+        self.spin_threads.setToolTip(tr("settings.threads_tooltip"))
         self.combo_threads = self.spin_threads
         layout.addWidget(self.spin_threads)
 
         layout.addSpacing(4)
 
-        self.chk_vad = ToggleSwitch("Voice Activity Detection (skip silence)")
+        self.chk_vad = ToggleSwitch(tr("settings.chk_vad"))
         self.chk_vad.setChecked(True)
         layout.addWidget(self.chk_vad)
 
-        self.chk_timestamps = ToggleSwitch("Include timestamps in Word document")
+        self.chk_timestamps = ToggleSwitch(tr("settings.chk_timestamps"))
         self.chk_timestamps.setChecked(True)
         layout.addWidget(self.chk_timestamps)
 
         layout.addSpacing(16)
 
         # Section 2: Storage & Output
-        layout.addWidget(self._make_section_label("Storage & Output"))
-        layout.addWidget(self._make_field_label("Output Folder"))
+        layout.addWidget(self._make_section_label("settings.sec_storage"))
+        layout.addWidget(self._make_field_label("settings.output_folder"))
 
         out_row = QHBoxLayout()
         out_row.setSpacing(8)
         self.txt_output_dir = QLineEdit()
-        self.txt_output_dir.setPlaceholderText("Default: Same folder as original audio")
+        self.txt_output_dir.setPlaceholderText(tr("settings.output_placeholder"))
         self.txt_output_dir.setReadOnly(True)
         self.txt_output_dir.setFixedHeight(36)
         out_row.addWidget(self.txt_output_dir, stretch=1)
 
-        self.btn_browse_dir = QPushButton("Browse")
+        self.btn_browse_dir = QPushButton(tr("settings.browse_btn"))
         self.btn_browse_dir.setFixedHeight(36)
         out_row.addWidget(self.btn_browse_dir)
 
-        self.btn_clear_dir = QPushButton("Reset")
+        self.btn_clear_dir = QPushButton(tr("settings.reset_btn"))
         self.btn_clear_dir.setFixedHeight(36)
         out_row.addWidget(self.btn_clear_dir)
         layout.addLayout(out_row)
 
         layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("Default Export Format"))
+        layout.addWidget(self._make_field_label("settings.export_format"))
 
         self.combo_export_format = QComboBox()
         self.combo_export_format.setView(QListView())
-        self.combo_export_format.addItem("Word Document (.docx)", "docx")
-        self.combo_export_format.addItem("PDF Document (.pdf)", "pdf")
-        self.combo_export_format.addItem("Markdown (.md)", "md")
-        self.combo_export_format.addItem("Plain Text (.txt)", "txt")
-        self.combo_export_format.addItem("Subtitles (.srt)", "srt")
-        self.combo_export_format.addItem("WebVTT (.vtt)", "vtt")
+        for fmt_code, fmt_key in _EXPORT_FORMAT_KEYS:
+            self.combo_export_format.addItem(tr(fmt_key), fmt_code)
         self.combo_export_format.setCurrentIndex(0)
         self.combo_export_format.setFixedHeight(36)
         layout.addWidget(self.combo_export_format)
 
-        self.chk_auto_export = ToggleSwitch("Auto-export file when transcription finishes")
+        self.chk_auto_export = ToggleSwitch(tr("settings.chk_auto_export"))
         self.chk_auto_export.setChecked(True)
         self._muted_checks.append(self.chk_auto_export)
         layout.addWidget(self.chk_auto_export)
@@ -289,31 +335,31 @@ class SettingsPanel(QWidget):
         layout.addSpacing(16)
 
         # Section 3: Memory & Performance
-        layout.addWidget(self._make_section_label("System & Memory"))
-        layout.addWidget(self._make_field_label("Model Memory Usage"))
+        layout.addWidget(self._make_section_label("settings.sec_system"))
+        layout.addWidget(self._make_field_label("settings.model_memory"))
 
         ram_row = QHBoxLayout()
         ram_row.setSpacing(12)
-        self.lbl_ram_status = QLabel("Model in RAM: None (0 MB)")
+        self.lbl_ram_status = QLabel(tr("settings.ram_none"))
         ram_row.addWidget(self.lbl_ram_status, stretch=1)
 
-        self.btn_free_ram = QPushButton("Unload Model")
+        self.btn_free_ram = QPushButton(tr("settings.unload_model_btn"))
         self.btn_free_ram.setFixedHeight(32)
         self.btn_free_ram.setEnabled(False)
         ram_row.addWidget(self.btn_free_ram)
         layout.addLayout(ram_row)
 
-        self.chk_auto_unload = ToggleSwitch("Auto-unload model after transcription finishes")
+        self.chk_auto_unload = ToggleSwitch(tr("settings.chk_auto_unload"))
         self._muted_checks.append(self.chk_auto_unload)
         layout.addWidget(self.chk_auto_unload)
 
         update_row = QHBoxLayout()
         update_row.setSpacing(12)
-        self.lbl_version = QLabel(f"Version {__version__}")
+        self.lbl_version = QLabel(tr("settings.version", version=__version__))
         self._muted_labels.append(self.lbl_version)
         update_row.addWidget(self.lbl_version, stretch=1)
 
-        self.btn_check_updates = QPushButton("Check for Updates")
+        self.btn_check_updates = QPushButton(tr("settings.check_updates_btn"))
         self.btn_check_updates.setFixedHeight(32)
         update_row.addWidget(self.btn_check_updates)
         layout.addLayout(update_row)
@@ -321,6 +367,7 @@ class SettingsPanel(QWidget):
         layout.addStretch()
 
         # Connect signals
+        self.combo_app_language.currentIndexChanged.connect(self._on_app_language_selected)
         self.combo_model.currentIndexChanged.connect(self._on_model_selected)
         self.btn_delete_model.clicked.connect(self._on_delete_model_clicked)
         self.combo_lang.currentIndexChanged.connect(self._on_setting_changed)
@@ -338,6 +385,92 @@ class SettingsPanel(QWidget):
         self.btn_browse_dir.clicked.connect(self._choose_output_dir)
         self.btn_clear_dir.clicked.connect(self._reset_output_dir)
 
+    def _populate_thread_items(self, max_cpu: int, default_threads: int) -> None:
+        self.spin_threads.blockSignals(True)
+        current_val = self.spin_threads.value() if self.spin_threads.count() else default_threads
+        self.spin_threads.clear()
+        for t in range(1, max_cpu + 1):
+            label = tr("settings.thread_singular", count=t) if t == 1 else tr("settings.thread_plural", count=t)
+            if t == default_threads:
+                label += tr("settings.recommended_suffix")
+            self.spin_threads.addItem(label, t)
+        self.spin_threads.setValue(current_val)
+        self.spin_threads.blockSignals(False)
+
+    def _on_app_language_selected(self) -> None:
+        lang = str(self.combo_app_language.currentData() or "en")
+        self.app_language_changed.emit(lang)
+
+    def set_selected_app_language(self, lang_code: str) -> None:
+        """Reflect active app language on dropdown without emitting app_language_changed."""
+        self.combo_app_language.blockSignals(True)
+        idx = self.combo_app_language.findData(lang_code)
+        if idx >= 0:
+            self.combo_app_language.setCurrentIndex(idx)
+        self.combo_app_language.blockSignals(False)
+
+    def retranslate_ui(self) -> None:
+        """Update all visible strings to the active application language."""
+        for lbl, key in self._section_label_keys:
+            lbl.setText(tr(key))
+        for lbl, key in self._field_label_keys:
+            lbl.setText(tr(key))
+
+        self.btn_theme_graphite.setText(tr("settings.theme_graphite"))
+        self.btn_theme_blush.setText(tr("settings.theme_blush"))
+        self.set_selected_app_language(get_language())
+
+        for i in range(self.combo_model.count()):
+            model_id = str(self.combo_model.itemData(i))
+            if model_id in _MODEL_KEY_MAP:
+                self.combo_model.setItemText(i, tr(_MODEL_KEY_MAP[model_id]))
+
+        self.btn_delete_model.setText(tr("settings.delete_model_btn"))
+        self._update_disk_status()
+
+        for i in range(self.combo_lang.count()):
+            code = self.combo_lang.itemData(i)
+            if code in _LANGUAGE_KEY_MAP:
+                self.combo_lang.setItemText(i, tr(_LANGUAGE_KEY_MAP[code]))
+
+        for i in range(self.combo_device.count()):
+            dev = self.combo_device.itemData(i)
+            if dev == "cpu":
+                key = "settings.device_cpu_mac" if sys.platform == "darwin" else "settings.device_cpu"
+                self.combo_device.setItemText(i, tr(key))
+            elif dev == "cuda":
+                self.combo_device.setItemText(i, tr("settings.device_cuda"))
+
+        comp_keys = {"int8": "settings.compute_int8", "float16": "settings.compute_float16", "float32": "settings.compute_float32"}
+        for i in range(self.combo_compute.count()):
+            comp = self.combo_compute.itemData(i)
+            if comp in comp_keys:
+                self.combo_compute.setItemText(i, tr(comp_keys[comp]))
+
+        max_cpu = os.cpu_count() or 6
+        default_threads = min(6, max_cpu)
+        self._populate_thread_items(max_cpu, default_threads)
+        self.spin_threads.setToolTip(tr("settings.threads_tooltip"))
+
+        self.chk_vad.setText(tr("settings.chk_vad"))
+        self.chk_timestamps.setText(tr("settings.chk_timestamps"))
+        self.txt_output_dir.setPlaceholderText(tr("settings.output_placeholder"))
+        self.btn_browse_dir.setText(tr("settings.browse_btn"))
+        self.btn_clear_dir.setText(tr("settings.reset_btn"))
+
+        fmt_map = dict(_EXPORT_FORMAT_KEYS)
+        for i in range(self.combo_export_format.count()):
+            fmt_code = str(self.combo_export_format.itemData(i))
+            if fmt_code in fmt_map:
+                self.combo_export_format.setItemText(i, tr(fmt_map[fmt_code]))
+
+        self.chk_auto_export.setText(tr("settings.chk_auto_export"))
+        self.btn_free_ram.setText(tr("settings.unload_model_btn"))
+        self.set_ram_status(self._ram_loaded, self._ram_model_name)
+        self.chk_auto_unload.setText(tr("settings.chk_auto_unload"))
+        self.lbl_version.setText(tr("settings.version", version=__version__))
+        self.btn_check_updates.setText(tr("settings.check_updates_btn"))
+
     def _on_model_selected(self) -> None:
         self._update_disk_status()
         self._on_setting_changed()
@@ -348,11 +481,17 @@ class SettingsPanel(QWidget):
         est_mb = estimate_model_ram_mb(model_name)
         if is_downloaded:
             size_mb = get_model_cache_size_mb(model_name)
-            size_str = f"{size_mb:.0f} MB on disk" if size_mb >= 1 else f"{size_mb:.1f} MB on disk"
-            self.lbl_disk_status.setText(f"Downloaded on disk ({size_str}, ~{est_mb}MB RAM)")
+            size_str = (
+                tr("settings.disk_on_disk_int", size=size_mb)
+                if size_mb >= 1
+                else tr("settings.disk_on_disk_dec", size=size_mb)
+            )
+            self.lbl_disk_status.setText(
+                tr("settings.disk_downloaded_detail", size_str=size_str, ram_mb=est_mb)
+            )
             self.btn_delete_model.setEnabled(True)
         else:
-            self.lbl_disk_status.setText(f"Not cached locally (~{est_mb}MB download)")
+            self.lbl_disk_status.setText(tr("settings.disk_not_cached", ram_mb=est_mb))
             self.btn_delete_model.setEnabled(False)
 
     def _on_delete_model_clicked(self) -> None:
@@ -360,9 +499,8 @@ class SettingsPanel(QWidget):
         size_mb = get_model_cache_size_mb(model_name)
         reply = QMessageBox.question(
             self,
-            "Delete Cached Model",
-            f"Delete cached '{model_name}' model files (~{size_mb:.1f} MB) from disk?\n\n"
-            "You can re-download it anytime by transcribing with this model.",
+            tr("settings.delete_model_title"),
+            tr("settings.delete_model_body", model=model_name, size=size_mb),
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
@@ -374,13 +512,14 @@ class SettingsPanel(QWidget):
         """Update the RAM display badge and enable/disable the Free RAM button."""
         p = get_palette()
         self._ram_loaded = bool(is_loaded and model_name)
+        self._ram_model_name = model_name if self._ram_loaded else None
         if self._ram_loaded:
             est_mb = estimate_model_ram_mb(model_name)
-            self.lbl_ram_status.setText(f"Model in Memory: {model_name} (~{est_mb} MB)")
+            self.lbl_ram_status.setText(tr("settings.ram_loaded", model=model_name, ram_mb=est_mb))
             self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {p.text_main}; font-weight: 500;")
             self.btn_free_ram.setEnabled(True)
         else:
-            self.lbl_ram_status.setText("Model in Memory: None (0 MB)")
+            self.lbl_ram_status.setText(tr("settings.ram_none"))
             self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {p.text_muted};")
             self.btn_free_ram.setEnabled(False)
 
@@ -450,7 +589,7 @@ class SettingsPanel(QWidget):
         self.settings_changed.emit()
 
     def _choose_output_dir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Select Output Directory for Word Documents")
+        chosen = QFileDialog.getExistingDirectory(self, tr("settings.select_output_dir"))
         if chosen:
             self._custom_output_dir = Path(chosen).resolve()
             self.txt_output_dir.setText(str(self._custom_output_dir))
@@ -493,6 +632,7 @@ class SettingsPanel(QWidget):
         settings.setValue("auto_unload", self.chk_auto_unload.isChecked())
         settings.setValue("output_dir", str(self._custom_output_dir) if self._custom_output_dir else "")
         settings.setValue("theme", get_theme_name())
+        settings.setValue("app_language", get_language())
         settings.endGroup()
 
     def load_settings(self, settings: QSettings) -> None:
@@ -510,8 +650,10 @@ class SettingsPanel(QWidget):
         auto_unload = settings.value("auto_unload", False, type=bool)
         out_dir = settings.value("output_dir", "", type=str)
         theme_name = settings.value("theme", "graphite", type=str)
+        app_lang = settings.value("app_language", "en", type=str)
         settings.endGroup()
         self.set_selected_theme(theme_name)
+        self.set_selected_app_language(app_lang)
 
         idx_model = self.combo_model.findData(model_name)
         if idx_model >= 0:

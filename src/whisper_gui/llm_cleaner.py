@@ -20,6 +20,7 @@ try:
 except ImportError:
     certifi = None
 
+from whisper_gui.i18n import tr
 from whisper_gui.models import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -190,16 +191,16 @@ def load_instructions(config: LLMConfig) -> tuple[str, str]:
     """
     if config.custom_instructions_text and config.custom_instructions_text.strip():
         source = (
-            f"File: {config.instruction_file.name}"
+            tr("llm.source_file", name=config.instruction_file.name)
             if config.instruction_file
-            else "Custom Instructions"
+            else tr("llm.source_custom")
         )
         return config.custom_instructions_text.strip(), source
 
     if config.instruction_file and Path(config.instruction_file).is_file():
         try:
             content = Path(config.instruction_file).read_text(encoding="utf-8")
-            return content.strip(), f"File: {Path(config.instruction_file).name}"
+            return content.strip(), tr("llm.source_file", name=Path(config.instruction_file).name)
         except Exception as e:
             logger.warning(
                 "Failed to read custom instruction file %s: %s. Falling back to default.",
@@ -207,7 +208,7 @@ def load_instructions(config: LLMConfig) -> tuple[str, str]:
                 e,
             )
 
-    return DEFAULT_INSTRUCTION_PROMPT.strip(), "Default Instructions"
+    return DEFAULT_INSTRUCTION_PROMPT.strip(), tr("llm.source_default")
 
 
 def _build_request(
@@ -246,7 +247,7 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
         # Some local servers like Ollama don't strictly require an API key,
         # but for cloud providers like DeepSeek, Anthropic, or OpenAI it's mandatory.
         if config.provider != "Custom":
-            return False, "API key cannot be empty. Please enter your API key."
+            return False, tr("llm.conn_empty_key")
 
     is_anthropic = is_anthropic_provider(config.provider, config.base_url)
     endpoint = clean_chat_endpoint(config.base_url, config.provider)
@@ -282,13 +283,13 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
             if is_anthropic:
                 content_blocks = data.get("content", [])
                 if content_blocks:
-                    return True, f"Connection successful: {model_id} is ready."
-                return True, f"Connection verified (HTTP {status})."
+                    return True, tr("llm.conn_success", model=model_id)
+                return True, tr("llm.conn_verified", status=status)
             else:
                 choices = data.get("choices", [])
                 if choices:
-                    return True, f"Connection successful: {model_id} is ready."
-                return True, f"Connection verified (HTTP {status})."
+                    return True, tr("llm.conn_success", model=model_id)
+                return True, tr("llm.conn_verified", status=status)
 
     except urllib.error.HTTPError as err:
         err_body = ""
@@ -300,24 +301,24 @@ def test_llm_connection(config: LLMConfig, timeout: float = 12.0) -> tuple[bool,
             msg = err_body or err.reason
 
         if err.code == 401:
-            return False, f"Authentication Failed (401): Invalid API Key. Details: {msg}"
+            return False, tr("llm.conn_auth_failed", msg=msg)
         elif err.code == 404:
-            return False, f"Not Found (404): Endpoint '{endpoint}' or model '{model_id}' not found."
+            return False, tr("llm.conn_not_found", endpoint=endpoint, model=model_id)
         elif err.code in (402, 429):
-            return False, f"Quota / Rate Limit Exceeded ({err.code}): {msg}"
-        return False, f"HTTP Error {err.code}: {msg}"
+            return False, tr("llm.conn_quota", code=err.code, msg=msg)
+        return False, tr("llm.conn_http_error", code=err.code, msg=msg)
 
     except urllib.error.URLError as err:
         reason_str = str(err.reason)
         if "CERTIFICATE_VERIFY_FAILED" in reason_str:
-            return False, f"SSL Certificate Error: {reason_str}. Ensure system certificates or certifi are present."
-        return False, f"Connection Failed: {reason_str}. Check internet connection or base URL."
+            return False, tr("llm.conn_ssl_error", reason=reason_str)
+        return False, tr("llm.conn_failed", reason=reason_str)
 
     except TimeoutError:
-        return False, f"Request timed out after {int(timeout)}s. Check network or server status."
+        return False, tr("llm.conn_timeout", seconds=int(timeout))
 
     except Exception as err:
-        return False, f"Unexpected error: {err}"
+        return False, tr("llm.conn_unexpected", error=err)
 
 
 test_llm_connection.__test__ = False
@@ -350,7 +351,7 @@ def polish_transcript(
         return ""
 
     if cancel_check and cancel_check():
-        raise InterruptedError("Polishing cancelled by user.")
+        raise InterruptedError(tr("llm.err_cancelled"))
 
     system_prompt = instructions
     if system_prompt is None:
@@ -385,14 +386,14 @@ def polish_transcript(
         ssl_ctx = get_ssl_context()
         with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as resp:
             if cancel_check and cancel_check():
-                raise InterruptedError("Polishing cancelled by user.")
+                raise InterruptedError(tr("llm.err_cancelled"))
             body = resp.read().decode("utf-8")
             data = json.loads(body)
 
             if is_anthropic:
                 content_blocks = data.get("content", [])
                 if not content_blocks:
-                    raise RuntimeError("Anthropic returned an empty response with no content blocks.")
+                    raise RuntimeError(tr("llm.err_anthropic_empty"))
                 text_parts = [
                     b.get("text", "")
                     for b in content_blocks
@@ -402,13 +403,13 @@ def polish_transcript(
             else:
                 choices = data.get("choices", [])
                 if not choices:
-                    raise RuntimeError("LLM returned an empty response with no choices.")
+                    raise RuntimeError(tr("llm.err_empty_choices"))
 
                 msg_obj = choices[0].get("message", {})
                 content = (msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
 
             if not content:
-                raise RuntimeError("LLM returned an empty text message.")
+                raise RuntimeError(tr("llm.err_empty_message"))
 
             # If the LLM wrapped the entire response in markdown code blocks, unwrap it
             if content.startswith("```markdown\n") and content.endswith("```"):
@@ -424,12 +425,12 @@ def polish_transcript(
             err_msg = json.loads(err.read().decode("utf-8")).get("error", {}).get("message", "")
         except Exception:
             pass
-        raise RuntimeError(f"LLM API Error ({err.code}): {err_msg or err.reason}") from err
+        raise RuntimeError(tr("llm.err_http", code=err.code, msg=err_msg or err.reason)) from err
 
     except urllib.error.URLError as err:
-        raise RuntimeError(f"Network error communicating with LLM API: {err.reason}") from err
+        raise RuntimeError(tr("llm.err_network", reason=err.reason)) from err
 
     except Exception as err:
         if isinstance(err, (InterruptedError, RuntimeError)):
             raise
-        raise RuntimeError(f"Failed to polish transcript: {err}") from err
+        raise RuntimeError(tr("llm.err_failed", error=err)) from err

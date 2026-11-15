@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 from whisper_gui.audio_utils import format_seconds
 from whisper_gui.docx_exporter import export_transcript_to_docx
+from whisper_gui.i18n import tr
 from whisper_gui.models import (
     AudioInfo,
     SliceConfig,
@@ -22,7 +23,7 @@ from whisper_gui.models import (
 
 def _get_slice_desc(slice_config: SliceConfig | None, duration: float) -> str:
     if not slice_config or slice_config.is_full(duration):
-        return "Entire Audio"
+        return tr("export.entire_audio")
     start_sec = max(0.0, slice_config.start_sec)
     end_sec = slice_config.effective_end(duration)
     slice_dur = slice_config.effective_duration(duration)
@@ -42,30 +43,33 @@ def export_transcript_to_txt(
 
     lines: list[str] = []
     lines.append("=" * 60)
-    lines.append("AUDIO TRANSCRIPTION")
+    lines.append(tr("export.txt.title"))
     lines.append("=" * 60)
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines.append(f"Export Date:     {now_str}")
+    lines.append(f"{tr('export.txt.export_date').ljust(16)} {now_str}")
 
     if track_info:
-        lines.append(f"Source File:     {track_info.filename}")
-        lines.append(f"Original Length: {track_info.duration_formatted}")
+        lines.append(f"{tr('export.txt.source_file').ljust(16)} {track_info.filename}")
+        lines.append(f"{tr('export.txt.original_length').ljust(16)} {track_info.duration_formatted}")
 
     if slice_config and track_info:
-        lines.append(f"Transcribed:     {_get_slice_desc(slice_config, track_info.duration)}")
+        lines.append(f"{tr('export.txt.transcribed').ljust(16)} {_get_slice_desc(slice_config, track_info.duration)}")
 
     if transcription_config and result:
-        lang = result.detected_language or transcription_config.language or "auto"
-        lines.append(f"Whisper Model:   {transcription_config.model_name} (Language: {lang})")
+        lang = result.detected_language or transcription_config.language or tr("export.auto_short")
+        lines.append(
+            f"{tr('export.txt.whisper_model').ljust(16)} "
+            f"{transcription_config.model_name} ({tr('export.txt.language')} {lang})"
+        )
 
     lines.append("-" * 60)
     lines.append("")
 
     # 1. Polished Text
     if result and result.polished_text:
-        model_name = result.llm_model_used or "AI Polisher"
-        lines.append(f"--- POLISHED TRANSCRIPT ({model_name}) ---")
+        model_name = result.llm_model_used or tr("export.ai_polisher")
+        lines.append(tr("export.txt.polished_section", model=model_name))
         lines.append(result.polished_text.strip())
         lines.append("")
 
@@ -79,7 +83,7 @@ def export_transcript_to_txt(
 
     if result and include_raw:
         if result.polished_text:
-            lines.append("--- DETAILED TRANSCRIPT ---")
+            lines.append(tr("export.txt.detailed_section"))
 
         if result.segments:
             for seg in result.segments:
@@ -106,33 +110,33 @@ def export_transcript_to_md(
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     lines: list[str] = []
-    lines.append("# Audio Transcription")
+    lines.append(tr("export.md.title"))
     lines.append("")
 
     # Metadata table
-    lines.append("| Property | Details |")
+    lines.append(tr("export.md.table_header"))
     lines.append("| :--- | :--- |")
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines.append(f"| **Export Date** | `{now_str}` |")
+    lines.append(f"| **{tr('export.label.export_date')}** | `{now_str}` |")
 
     if track_info:
-        lines.append(f"| **Source File** | `{track_info.filename}` |")
-        lines.append(f"| **Duration** | `{track_info.duration_formatted}` |")
+        lines.append(f"| **{tr('export.label.source_file')}** | `{track_info.filename}` |")
+        lines.append(f"| **{tr('export.label.duration')}** | `{track_info.duration_formatted}` |")
 
     if slice_config and track_info:
-        lines.append(f"| **Slice Range** | `{_get_slice_desc(slice_config, track_info.duration)}` |")
+        lines.append(f"| **{tr('export.label.slice_range')}** | `{_get_slice_desc(slice_config, track_info.duration)}` |")
 
     if transcription_config and result:
-        lang = result.detected_language or transcription_config.language or "auto"
-        lines.append(f"| **Model** | `{transcription_config.model_name}` ({lang}) |")
+        lang = result.detected_language or transcription_config.language or tr("export.auto_short")
+        lines.append(f"| **{tr('export.label.model')}** | `{transcription_config.model_name}` ({lang}) |")
 
     lines.append("")
 
     # 1. Polished Text
     if result and result.polished_text:
-        model_name = result.llm_model_used or "AI Polisher"
-        lines.append(f"## Polished Transcript ({model_name})")
+        model_name = result.llm_model_used or tr("export.ai_polisher")
+        lines.append(tr("export.md.polished_section", model=model_name))
         lines.append("")
         lines.append(result.polished_text.strip())
         lines.append("")
@@ -146,7 +150,7 @@ def export_transcript_to_md(
             include_raw = transcription_config.llm_config.include_raw_in_docx
 
     if result and include_raw:
-        lines.append("## Detailed Transcript")
+        lines.append(tr("export.md.detailed_section"))
         lines.append("")
 
         if result.segments:
@@ -178,17 +182,17 @@ def export_transcript_to_pdf(
     _ = QApplication.instance() or QApplication([])
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    source_filename = html.escape(track_info.filename) if track_info else "Audio Source"
+    source_filename = html.escape(track_info.filename) if track_info else tr("export.pdf.default_source")
     duration_str = track_info.duration_formatted if track_info else "--:--"
 
-    slice_str = "Entire Audio"
+    slice_str = tr("export.entire_audio")
     if slice_config and track_info:
         slice_str = _get_slice_desc(slice_config, track_info.duration)
     slice_str = html.escape(slice_str)
 
     model_str = "faster-whisper"
     if transcription_config and result:
-        lang = result.detected_language or transcription_config.language or "auto"
+        lang = result.detected_language or transcription_config.language or tr("export.auto_short")
         model_str = f"{transcription_config.model_name} ({lang})"
     model_str = html.escape(model_str)
 
@@ -214,24 +218,24 @@ def export_transcript_to_pdf(
         "</style>",
         "</head>",
         "<body>",
-        "  <h1>Audio Transcription</h1>",
-        f"  <div class='subtitle'>Source: <b>{source_filename}</b> &bull; Generated: {now_str}</div>",
+        f"  <h1>{html.escape(tr('export.title'))}</h1>",
+        f"  <div class='subtitle'>{tr('export.pdf.subtitle', filename=source_filename, date=now_str)}</div>",
         "  <table class='meta-table' cellpadding='6' cellspacing='0'>",
         "    <tr>",
-        f"      <td class='meta-label'>Source File</td><td class='meta-val'>{source_filename}</td>",
-        f"      <td class='meta-label'>Length</td><td class='meta-val'>{duration_str}</td>",
+        f"      <td class='meta-label'>{html.escape(tr('export.label.source_file'))}</td><td class='meta-val'>{source_filename}</td>",
+        f"      <td class='meta-label'>{html.escape(tr('export.label.length'))}</td><td class='meta-val'>{duration_str}</td>",
         "    </tr>",
         "    <tr>",
-        f"      <td class='meta-label'>Model</td><td class='meta-val'>{model_str}</td>",
-        f"      <td class='meta-label'>Slice Range</td><td class='meta-val'>{slice_str}</td>",
+        f"      <td class='meta-label'>{html.escape(tr('export.label.model'))}</td><td class='meta-val'>{model_str}</td>",
+        f"      <td class='meta-label'>{html.escape(tr('export.label.slice_range'))}</td><td class='meta-val'>{slice_str}</td>",
         "    </tr>",
         "  </table>",
     ]
 
     # Polished speech section
     if result and result.polished_text:
-        model_name = html.escape(result.llm_model_used or "AI Polisher")
-        html_parts.append(f"  <h2>Polished Speech ({model_name})</h2>")
+        model_name = html.escape(result.llm_model_used or tr("export.ai_polisher"))
+        html_parts.append(f"  <h2>{html.escape(tr('export.pdf.polished_section', model=model_name))}</h2>")
         polished_html = html.escape(result.polished_text.strip()).replace("\n\n", "</p><p>").replace("\n", "<br>")
         html_parts.append(f"  <div class='polished-box'><p>{polished_html}</p></div>")
 
@@ -244,7 +248,7 @@ def export_transcript_to_pdf(
             include_raw = transcription_config.llm_config.include_raw_in_docx
 
     if result and include_raw:
-        html_parts.append("  <h2>Detailed Transcript</h2>")
+        html_parts.append(f"  <h2>{html.escape(tr('export.pdf.detailed_section'))}</h2>")
         if result.segments:
             html_parts.append("  <table class='seg-table' cellpadding='3' cellspacing='0'>")
             for seg in result.segments:

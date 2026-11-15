@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
+from whisper_gui.i18n import get_language, set_language, tr
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
 from whisper_gui.platform_utils import get_app_icon, get_asset_path
 from whisper_gui.transcriber import Transcriber
@@ -261,7 +262,7 @@ class MainWindow(QMainWindow):
         header_layout.setAlignment(Qt.AlignVCenter)
 
         # Left side: Lateral Drawer Toggle + Title + Model Badge
-        self.btn_toggle_drawer = QPushButton("Tracks (0)")
+        self.btn_toggle_drawer = QPushButton(tr("main.tracks_button", count=0))
         self.btn_toggle_drawer.setIconSize(QSize(16, 16))
         self.btn_toggle_drawer.setCheckable(True)
         self.btn_toggle_drawer.clicked.connect(self._toggle_tracks_drawer)
@@ -271,13 +272,13 @@ class MainWindow(QMainWindow):
         self.title_lbl = QLabel("Whisper GUI")
         header_layout.addWidget(self.title_lbl)
 
-        self.lbl_model_badge = QLabel("Model: large-v3-turbo")
+        self.lbl_model_badge = QLabel(tr("main.model_badge", model="large-v3-turbo"))
         self.lbl_model_badge.setFont(fixed_mono_font(12))
         header_layout.addWidget(self.lbl_model_badge)
 
         header_layout.addStretch()
 
-        self.btn_open_settings = QPushButton("Settings")
+        self.btn_open_settings = QPushButton(tr("main.settings_button"))
         self.btn_open_settings.setIconSize(QSize(16, 16))
         self.btn_open_settings.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_open_settings.clicked.connect(self._open_settings_page)
@@ -302,10 +303,10 @@ class MainWindow(QMainWindow):
 
         drawer_hdr = QHBoxLayout()
         drawer_hdr.setSpacing(8)
-        self.lbl_drawer_title = QLabel("Tracks")
+        self.lbl_drawer_title = QLabel(tr("main.drawer_title"))
         drawer_hdr.addWidget(self.lbl_drawer_title)
 
-        self.lbl_drawer_count = QLabel("0 tracks")
+        self.lbl_drawer_count = QLabel(tr("main.drawer_track_plural", count=0))
         self.lbl_drawer_count.setFont(fixed_mono_font(11))
         drawer_hdr.addWidget(self.lbl_drawer_count)
 
@@ -315,7 +316,7 @@ class MainWindow(QMainWindow):
         self.btn_close_drawer.setObjectName("btn_close_drawer")
         self.btn_close_drawer.setIconSize(QSize(14, 14))
         self.btn_close_drawer.setFixedSize(28, 28)
-        self.btn_close_drawer.setToolTip("Close drawer")
+        self.btn_close_drawer.setToolTip(tr("main.drawer_close_tooltip"))
         self.btn_close_drawer.setStyleSheet("padding: 0px;")
         self.btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
         drawer_hdr.addWidget(self.btn_close_drawer)
@@ -353,7 +354,7 @@ class MainWindow(QMainWindow):
         drop_layout.setSpacing(12)
         drop_layout.setAlignment(Qt.AlignCenter)
 
-        self.lbl_drop_title = QLabel("Import File")
+        self.lbl_drop_title = QLabel(tr("main.drop_title"))
         self.lbl_drop_title.setAlignment(Qt.AlignCenter)
         drop_layout.addWidget(self.lbl_drop_title)
 
@@ -374,14 +375,14 @@ class MainWindow(QMainWindow):
         track_row = QHBoxLayout()
         track_row.setSpacing(12)
 
-        self.lbl_active_name = QLabel("Track Name")
+        self.lbl_active_name = QLabel(tr("main.no_track_selected"))
         track_row.addWidget(self.lbl_active_name, stretch=1)
 
         self.lbl_active_meta = QLabel("00:00 • 0 MB")
         self.lbl_active_meta.setFont(fixed_mono_font(12))
         track_row.addWidget(self.lbl_active_meta)
 
-        self.lbl_active_slice = QLabel("Full Audio")
+        self.lbl_active_slice = QLabel(tr("main.full_audio"))
         self.lbl_active_slice.setFont(fixed_mono_font(12))
         track_row.addWidget(self.lbl_active_slice)
         card_layout.addLayout(track_row)
@@ -390,20 +391,20 @@ class MainWindow(QMainWindow):
         actions_row = QHBoxLayout()
         actions_row.setSpacing(12)
 
-        self.btn_open_trim = QPushButton("Trim Audio")
+        self.btn_open_trim = QPushButton(tr("main.trim_button"))
         self.btn_open_trim.setIconSize(QSize(16, 16))
         self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 12px;")
         self.btn_open_trim.clicked.connect(self._open_trim_dialog)
         actions_row.addWidget(self.btn_open_trim)
 
-        self.chk_polish_sync = ToggleSwitch("Auto-polish transcript")
+        self.chk_polish_sync = ToggleSwitch(tr("main.auto_polish"))
         self.chk_polish_sync.setStyleSheet("font-weight: 400; background-color: transparent;")
         self.chk_polish_sync.toggled.connect(self._on_polish_sync_toggled)
         actions_row.addWidget(self.chk_polish_sync)
 
         actions_row.addStretch()
 
-        self.btn_active_drawer = QPushButton("View All Tracks")
+        self.btn_active_drawer = QPushButton(tr("main.view_all_tracks"))
         self.btn_active_drawer.setIconSize(QSize(16, 16))
         self.btn_active_drawer.setStyleSheet("padding: 6px 12px; font-size: 12px;")
         self.btn_active_drawer.clicked.connect(self._open_tracks_drawer)
@@ -417,7 +418,7 @@ class MainWindow(QMainWindow):
         self.combo_active_track = QComboBox()
         self.combo_active_track.setView(QListView())
         self.combo_active_track.currentIndexChanged.connect(self._on_combo_track_changed)
-        self.btn_add_another = QPushButton("+ Add Files")
+        self.btn_add_another = QPushButton(tr("main.add_files_button"))
         self.btn_add_another.clicked.connect(self.track_list._on_add_files_clicked)
         self.btn_add_another.hide()
 
@@ -425,12 +426,12 @@ class MainWindow(QMainWindow):
         transcribe_row = QHBoxLayout()
         transcribe_row.setSpacing(8)
 
-        self.btn_start = QPushButton("Transcribe Audio")
+        self.btn_start = QPushButton(tr("main.transcribe_audio"))
         self.btn_start.setFixedHeight(40)
         self.btn_start.clicked.connect(self._on_start_clicked)
         transcribe_row.addWidget(self.btn_start, stretch=1)
 
-        self.btn_stop = QPushButton("Stop")
+        self.btn_stop = QPushButton(tr("main.stop_button"))
         self.btn_stop.setFixedHeight(40)
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
@@ -457,16 +458,16 @@ class MainWindow(QMainWindow):
 
         # Compatibility container for tests asserting `window.config_tabs.count() == 3`
         self.config_tabs = QTabWidget()
-        self.config_tabs.addTab(self.range_selector, "Trimming")
-        self.config_tabs.addTab(QWidget(), "Whisper")
-        self.config_tabs.addTab(QWidget(), "Polish")
+        self.config_tabs.addTab(self.range_selector, tr("main.tab_trimming"))
+        self.config_tabs.addTab(QWidget(), tr("main.tab_whisper"))
+        self.config_tabs.addTab(QWidget(), tr("main.tab_polish"))
         self.config_tabs.hide()
 
         # Status Bar
         self.status_bar = QStatusBar()
         self.status_bar.setSizeGripEnabled(True)
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        self.status_bar.showMessage(tr("main.status_ready"))
 
         # Connect Signals
         self.track_list.track_selected.connect(self._on_track_selected)
@@ -475,6 +476,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
         self.settings_panel.check_updates_requested.connect(lambda: self._check_for_updates(manual=True))
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
+        self.settings_panel.app_language_changed.connect(self._on_app_language_changed)
         self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
         self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
         self.transcript_view.polish_requested.connect(self._on_repolish_clicked)
@@ -628,6 +630,42 @@ class MainWindow(QMainWindow):
         if self._theme_overlay is drop:
             self._theme_overlay = None
 
+    def _on_app_language_changed(self, lang_code: str) -> None:
+        if lang_code == get_language():
+            return
+        set_language(lang_code)
+        self.retranslate_ui()
+        self._save_settings()
+
+    def retranslate_ui(self) -> None:
+        """Refresh all visible text across the main window and child widgets."""
+        self.btn_open_settings.setText(tr("main.settings_button"))
+        self.lbl_drawer_title.setText(tr("main.drawer_title"))
+        self.btn_close_drawer.setToolTip(tr("main.drawer_close_tooltip"))
+        self.lbl_drop_title.setText(tr("main.drop_title"))
+        self.btn_open_trim.setText(tr("main.trim_button"))
+        self.chk_polish_sync.setText(tr("main.auto_polish"))
+        self.btn_active_drawer.setText(tr("main.view_all_tracks"))
+        self.btn_add_another.setText(tr("main.add_files_button"))
+        self.btn_stop.setText(tr("main.stop_button"))
+        self.config_tabs.setTabText(0, tr("main.tab_trimming"))
+        self.config_tabs.setTabText(1, tr("main.tab_whisper"))
+        self.config_tabs.setTabText(2, tr("main.tab_polish"))
+
+        self.settings_page.retranslate_ui()
+        self.settings_panel.retranslate_ui()
+        self.llm_panel.retranslate_ui()
+        self.range_selector.retranslate_ui()
+        self.track_list.retranslate_ui()
+        self.transcript_view.retranslate_ui()
+
+        self._on_model_changed()
+        self._update_track_count_labels(len(self.track_list.get_tracks()))
+        self._update_start_button_text()
+        self._update_active_track_labels(self._active_track)
+        if not self.current_worker or not self.current_worker.isRunning():
+            self.status_bar.showMessage(tr("main.status_ready"))
+
     def _toggle_tracks_drawer(self) -> None:
         is_checked = self.btn_toggle_drawer.isChecked()
         self.tracks_drawer.setVisible(is_checked)
@@ -654,8 +692,11 @@ class MainWindow(QMainWindow):
         self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
 
     def _on_model_changed(self) -> None:
-        model_name = self.settings_panel.combo_model.currentText().split()[0]
-        self.lbl_model_badge.setText(f"Model: {model_name}")
+        model_name = str(
+            self.settings_panel.combo_model.currentData()
+            or self.settings_panel.combo_model.currentText().split()[0]
+        )
+        self.lbl_model_badge.setText(tr("main.model_badge", model=model_name))
 
     def _on_polish_sync_toggled(self, checked: bool) -> None:
         if self.llm_panel.chk_enable.isChecked() != checked:
@@ -665,15 +706,36 @@ class MainWindow(QMainWindow):
         if self.chk_polish_sync.isChecked() != checked:
             self.chk_polish_sync.setChecked(checked)
 
+    def _update_track_count_labels(self, count: int) -> None:
+        self.btn_toggle_drawer.setText(tr("main.tracks_button", count=count))
+        count_key = "main.drawer_track_singular" if count == 1 else "main.drawer_track_plural"
+        self.lbl_drawer_count.setText(tr(count_key, count=count))
+
     def _on_track_count_changed(self, count: int) -> None:
-        self.btn_toggle_drawer.setText(f"Tracks ({count})")
-        self.lbl_drawer_count.setText(f"{count} {'track' if count == 1 else 'tracks'}")
+        self._update_track_count_labels(count)
         if count > 1 and not self.tracks_drawer.isVisible():
             self.btn_toggle_drawer.setChecked(True)
             self.tracks_drawer.show()
             total_w = self.main_splitter.width() or 1000
             self.main_splitter.setSizes([350, max(600, total_w - 350)])
         self._sync_queue_display()
+
+    def _update_start_button_text(self) -> None:
+        tracks = self.track_list.get_tracks()
+        if len(tracks) > 1:
+            pending = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
+            if pending:
+                n = len(pending)
+                key = "main.transcribe_all_one" if n == 1 else "main.transcribe_all_many"
+                self.btn_start.setText(tr(key, count=n))
+            else:
+                n = len(tracks)
+                key = "main.rerun_all_one" if n == 1 else "main.rerun_all_many"
+                self.btn_start.setText(tr(key, count=n))
+        elif len(tracks) == 1:
+            self.btn_start.setText(tr("main.transcribe_track"))
+        else:
+            self.btn_start.setText(tr("main.transcribe_audio"))
 
     def _sync_queue_display(self) -> None:
         tracks = self.track_list.get_tracks()
@@ -682,19 +744,7 @@ class MainWindow(QMainWindow):
         self.active_card.setVisible(has_tracks)
         self.btn_active_drawer.setVisible(len(tracks) > 1)
 
-        # Start button label reflects single vs multi-track queue state
-        if len(tracks) > 1:
-            pending = [t for t in tracks if t.status in (TrackStatus.QUEUED, TrackStatus.ERROR)]
-            if pending:
-                n = len(pending)
-                self.btn_start.setText(f"Transcribe All ({n} Track{'s' if n != 1 else ''})")
-            else:
-                n = len(tracks)
-                self.btn_start.setText(f"Re-run All ({n} Track{'s' if n != 1 else ''})")
-        elif len(tracks) == 1:
-            self.btn_start.setText("Transcribe Track")
-        else:
-            self.btn_start.setText("Transcribe Audio")
+        self._update_start_button_text()
 
         self.combo_active_track.blockSignals(True)
         self.combo_active_track.clear()
@@ -706,6 +756,28 @@ class MainWindow(QMainWindow):
             self._set_active_track(tracks[0])
         elif not has_tracks:
             self._set_active_track(None)
+
+    def _update_active_track_labels(self, track: AudioTrack | None) -> None:
+        if track is None:
+            self.lbl_active_name.setText(tr("main.no_track_selected"))
+            self.lbl_active_meta.setText("")
+            self.lbl_active_slice.setText(tr("main.full_audio"))
+            return
+
+        tracks = self.track_list.get_tracks()
+        if len(tracks) > 1:
+            try:
+                idx = tracks.index(track) + 1
+                self.lbl_active_name.setText(
+                    tr("main.track_of", idx=idx, total=len(tracks), filename=track.info.filename)
+                )
+            except ValueError:
+                self.lbl_active_name.setText(track.info.filename)
+        else:
+            self.lbl_active_name.setText(track.info.filename)
+
+        self.lbl_active_meta.setText(f"{track.info.duration_formatted} • {track.info.size_mb:.1f} MB")
+        self._update_slice_badge(track)
 
     def _set_active_track(self, track: AudioTrack | None) -> None:
         prev_track = self._active_track
@@ -722,25 +794,11 @@ class MainWindow(QMainWindow):
         if not streaming_to_other:
             self.transcript_view.load_track(track, self.settings_panel.get_config())
 
+        self._update_active_track_labels(track)
         if track is None:
-            self.lbl_active_name.setText("No track selected")
-            self.lbl_active_meta.setText("")
-            self.lbl_active_slice.setText("Full Audio")
             return
 
         tracks = self.track_list.get_tracks()
-        if len(tracks) > 1:
-            try:
-                idx = tracks.index(track) + 1
-                self.lbl_active_name.setText(f"Track {idx} of {len(tracks)}: {track.info.filename}")
-            except ValueError:
-                self.lbl_active_name.setText(track.info.filename)
-        else:
-            self.lbl_active_name.setText(track.info.filename)
-
-        self.lbl_active_meta.setText(f"{track.info.duration_formatted} • {track.info.size_mb:.1f} MB")
-        self._update_slice_badge(track)
-
         # Sync table selection
         for i, t in enumerate(tracks):
             if t.id == track.id:
@@ -753,11 +811,11 @@ class MainWindow(QMainWindow):
         from whisper_gui.audio_utils import format_seconds
         slice_cfg = track.slice_config
         if slice_cfg.is_full(track.info.duration):
-            self.lbl_active_slice.setText("Full Audio")
+            self.lbl_active_slice.setText(tr("main.full_audio"))
         else:
             s = format_seconds(slice_cfg.start_sec)
             e = format_seconds(slice_cfg.effective_end(track.info.duration))
-            self.lbl_active_slice.setText(f"Trim: {s} → {e}")
+            self.lbl_active_slice.setText(tr("main.trim_badge", start=s, end=e))
 
     def _on_combo_track_changed(self, index: int) -> None:
         tracks = self.track_list.get_tracks()
@@ -780,9 +838,8 @@ class MainWindow(QMainWindow):
         if not ok:
             QMessageBox.critical(
                 self,
-                "FFmpeg Missing",
-                f"FFmpeg or FFprobe was not detected on your system PATH:\n\n{msg}\n\n"
-                f"Whisper GUI requires FFmpeg to slice and decode audio tracks.",
+                tr("main.dlg_ffmpeg_title"),
+                tr("main.dlg_ffmpeg_body", msg=msg),
             )
 
     def _on_track_selected(self, track: AudioTrack | None) -> None:
@@ -799,8 +856,8 @@ class MainWindow(QMainWindow):
         if not tracks:
             QMessageBox.warning(
                 self,
-                "No Audio Tracks",
-                "Please add at least one audio file before starting transcription.",
+                tr("main.dlg_no_tracks_title"),
+                tr("main.dlg_no_tracks_body"),
             )
             return
 
@@ -808,9 +865,8 @@ class MainWindow(QMainWindow):
         if llm_cfg.enabled and not llm_cfg.api_key.strip() and llm_cfg.provider != "Custom":
             QMessageBox.warning(
                 self,
-                "API Key Required",
-                "You have enabled LLM Text Polishing, but no API Key is entered.\n\n"
-                "Please configure your API Key in Settings.",
+                tr("main.dlg_api_key_title"),
+                tr("main.dlg_api_key_start_body"),
             )
             self._open_settings_page()
             return
@@ -819,8 +875,8 @@ class MainWindow(QMainWindow):
         if not pending_tracks:
             reply = QMessageBox.question(
                 self,
-                "Re-run Transcription?",
-                "All tracks are completed. Transcribe them again?",
+                tr("main.dlg_rerun_title"),
+                tr("main.dlg_rerun_body"),
                 QMessageBox.Yes | QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
@@ -842,7 +898,7 @@ class MainWindow(QMainWindow):
         self.range_selector.setEnabled(False)
         self.settings_panel.setEnabled(False)
         self.llm_panel.setEnabled(False)
-        self.status_bar.showMessage("Transcribing...")
+        self.status_bar.showMessage(tr("main.status_transcribing"))
 
         self.current_worker = TranscriptionWorker(
             tracks=pending_tracks,
@@ -864,8 +920,8 @@ class MainWindow(QMainWindow):
 
     def _on_stop_clicked(self) -> None:
         if self.current_worker and self.current_worker.isRunning():
-            self.transcript_view.set_status("Stopping...")
-            self.status_bar.showMessage("Stopping...")
+            self.transcript_view.set_status(tr("main.status_stopping"))
+            self.status_bar.showMessage(tr("main.status_stopping"))
             self.current_worker.request_stop()
             self.btn_stop.setEnabled(False)
 
@@ -875,12 +931,14 @@ class MainWindow(QMainWindow):
         if track:
             self._set_active_track(track)
             self.transcript_view.clear_view()
-            self.transcript_view.set_status(f"Transcribing {track.info.filename}...")
+            self.transcript_view.set_status(
+                tr("main.status_transcribing_file", filename=track.info.filename)
+            )
 
     def _on_free_ram_clicked(self) -> None:
         self.transcriber.unload_model()
         self.settings_panel.set_ram_status(False)
-        self.status_bar.showMessage("Model unloaded (RAM freed).")
+        self.status_bar.showMessage(tr("main.status_model_unloaded"))
 
     def _on_worker_status_updated(self, track_id: str, message: str) -> None:
         if self._active_track is None or self._active_track.id == track_id:
@@ -920,36 +978,36 @@ class MainWindow(QMainWindow):
                 self.transcript_view.btn_open_folder.setEnabled(True)
 
         if result.docx_path:
-            self.status_bar.showMessage(f"Saved: {result.docx_path.name}")
+            self.status_bar.showMessage(tr("main.status_saved", filename=result.docx_path.name))
         if self.transcriber.is_loaded:
             self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
         self.track_list.refresh_track_display(track_id)
         if self._active_track is None or self._active_track.id == track_id:
-            self.transcript_view.set_status(f"Error: {error_msg}")
-        self.status_bar.showMessage(f"Error: {error_msg}")
+            self.transcript_view.set_status(tr("main.status_error", error=error_msg))
+        self.status_bar.showMessage(tr("main.status_error", error=error_msg))
 
     def _on_worker_finished(self) -> None:
         self._reset_ui_state()
         if self.settings_panel.chk_auto_unload.isChecked():
             self.transcriber.unload_model()
             self.settings_panel.set_ram_status(False)
-            self.status_bar.showMessage("Completed. Model unloaded.")
+            self.status_bar.showMessage(tr("main.status_completed_unloaded"))
         else:
             if self.transcriber.is_loaded:
                 self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
-            self.status_bar.showMessage("Transcription completed.")
+            self.status_bar.showMessage(tr("main.status_completed"))
 
         QMessageBox.information(
             self,
-            "Done",
-            "Transcription completed. Document is ready.",
+            tr("main.dlg_done_title"),
+            tr("main.dlg_done_body"),
         )
 
     def _on_worker_cancelled(self) -> None:
         self._reset_ui_state()
-        self.status_bar.showMessage("Cancelled.")
+        self.status_bar.showMessage(tr("main.status_cancelled"))
 
     def _reset_ui_state(self) -> None:
         self.btn_start.setEnabled(True)
@@ -980,16 +1038,16 @@ class MainWindow(QMainWindow):
         if not llm_cfg.api_key.strip() and llm_cfg.provider != "Custom":
             QMessageBox.warning(
                 self,
-                "API Key Required",
-                "No LLM API Key is configured.\n\nPlease enter your API Key in Settings.",
+                tr("main.dlg_api_key_title"),
+                tr("main.dlg_api_key_polish_body"),
             )
             self._open_settings_page()
             return
 
         self.transcript_view.btn_polish.setEnabled(False)
         self.btn_start.setEnabled(False)
-        self.transcript_view.set_status(f"Polishing with {llm_cfg.model_name}...")
-        self.status_bar.showMessage(f"Polishing with {llm_cfg.model_name}...")
+        self.transcript_view.set_status(tr("main.status_polishing", model=llm_cfg.model_name))
+        self.status_bar.showMessage(tr("main.status_polishing", model=llm_cfg.model_name))
 
         self._polish_worker = PolishWorker(track=track, llm_config=llm_cfg, parent=self)
         self._polish_worker.completed.connect(self._on_polish_completed)
@@ -1004,27 +1062,27 @@ class MainWindow(QMainWindow):
             self.transcript_view.set_polished_text(
                 result.polished_text or "", result.llm_model_used or ""
             )
-            self.transcript_view.set_status("Transcript polished successfully.")
-        self.status_bar.showMessage("Transcript polished successfully.")
+            self.transcript_view.set_status(tr("main.status_polished"))
+        self.status_bar.showMessage(tr("main.status_polished"))
         self.track_list.refresh_track_display(track_id)
 
     def _on_polish_failed(self, track_id: str, error_msg: str) -> None:
         self.btn_start.setEnabled(True)
         self.transcript_view._update_polish_button_state()
         if self._active_track is None or self._active_track.id == track_id:
-            self.transcript_view.set_status(f"Polish error: {error_msg}")
-        self.status_bar.showMessage(f"Polish error: {error_msg}")
+            self.transcript_view.set_status(tr("main.status_polish_error", error=error_msg))
+        self.status_bar.showMessage(tr("main.status_polish_error", error=error_msg))
         QMessageBox.warning(
             self,
-            "Polishing Failed",
-            f"Failed to polish transcript:\n\n{error_msg}",
+            tr("main.dlg_polish_failed_title"),
+            tr("main.dlg_polish_failed_body", error=error_msg),
         )
 
     def _on_polish_cancelled(self) -> None:
         self.btn_start.setEnabled(True)
         self.transcript_view._update_polish_button_state()
-        self.transcript_view.set_status("Polishing cancelled.")
-        self.status_bar.showMessage("Polishing cancelled.")
+        self.transcript_view.set_status(tr("main.status_polish_cancelled"))
+        self.status_bar.showMessage(tr("main.status_polish_cancelled"))
 
     def _on_polish_worker_finished(self) -> None:
         worker = self._polish_worker
@@ -1049,6 +1107,11 @@ class MainWindow(QMainWindow):
         self.llm_panel.load_settings(settings)
         self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
         if "PYTEST_CURRENT_TEST" not in os.environ:
+            saved_lang = settings.value("Settings/app_language", "en", type=str)
+            if saved_lang != get_language():
+                applied_lang = set_language(saved_lang)
+                self.settings_panel.set_selected_app_language(applied_lang)
+                self.retranslate_ui()
             saved_theme = settings.value("Settings/theme", "graphite", type=str)
             if saved_theme != get_theme_name():
                 set_theme(saved_theme)
@@ -1065,7 +1128,7 @@ class MainWindow(QMainWindow):
         self._manual_update_check = manual
         if manual:
             self.settings_panel.btn_check_updates.setEnabled(False)
-            self.status_bar.showMessage("Checking for updates...")
+            self.status_bar.showMessage(tr("main.status_checking_updates"))
         self._update_check_worker = UpdateCheckWorker(parent=self)
         self._update_check_worker.update_available.connect(self._on_update_available)
         self._update_check_worker.no_update.connect(self._on_no_update_available)
@@ -1080,11 +1143,11 @@ class MainWindow(QMainWindow):
     def _on_no_update_available(self) -> None:
         if self._manual_update_check:
             self._manual_update_check = False
-            self.status_bar.showMessage(f"You are on the latest version (v{__version__}).")
+            self.status_bar.showMessage(tr("main.status_latest_version", version=__version__))
             QMessageBox.information(
                 self,
-                "No Updates Available",
-                f"No updates available. You are already running the latest version (v{__version__}).",
+                tr("main.dlg_no_updates_title"),
+                tr("main.dlg_no_updates_body", version=__version__),
             )
 
     def _on_update_check_finished(self) -> None:

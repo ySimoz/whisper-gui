@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.4
+
+### What's New
+- **Italian Localization (`en` / `it`) & Live Language Switching:** Added complete Italian translations across the workspace, dialogs, track statuses, background workers, LLM connection feedback, and exported documents (`.docx`, `.pdf`, `.md`, `.txt`), with an **App Language** selector in **Settings → Appearance** that switches the UI immediately and persists via `QSettings`.
+- **Bilingual Parity Guardrails:** Added automated key/placeholder parity and AST `tr()` coverage tests (`tests/test_i18n.py`) plus `.agents/rules/i18n.md` to keep English and Italian synchronized in future changes.
+
 ## v0.2.3
 
 ### What's New

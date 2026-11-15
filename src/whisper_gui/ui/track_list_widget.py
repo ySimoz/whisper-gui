@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_info
+from whisper_gui.i18n import display_track_status, tr
 from whisper_gui.models import AudioTrack, TrackStatus
 from whisper_gui.ui.theme import fixed_mono_font, get_palette
 
@@ -73,20 +74,20 @@ class TrackListWidget(QFrame):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
-        self.btn_add_files = QPushButton("+ Files")
+        self.btn_add_files = QPushButton(tr("tracks.add_files"))
         self.btn_add_files.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_files)
 
-        self.btn_add_folder = QPushButton("+ Folder")
-        self.btn_add_folder.setToolTip("Scan directory recursively for audio files")
+        self.btn_add_folder = QPushButton(tr("tracks.add_folder"))
+        self.btn_add_folder.setToolTip(tr("tracks.add_folder_tooltip"))
         self.btn_add_folder.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_folder)
 
-        self.btn_remove = QPushButton("Remove")
+        self.btn_remove = QPushButton(tr("tracks.remove"))
         self.btn_remove.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         toolbar.addWidget(self.btn_remove)
 
-        self.btn_clear = QPushButton("Clear")
+        self.btn_clear = QPushButton(tr("tracks.clear"))
         self.btn_clear.setStyleSheet("padding: 4px 8px; font-size: 11px;")
         toolbar.addWidget(self.btn_clear)
 
@@ -96,7 +97,12 @@ class TrackListWidget(QFrame):
         # Tracks Table
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Track", "Length", "Status", "Word (.docx)"])
+        self.table.setHorizontalHeaderLabels([
+            tr("tracks.col_track"),
+            tr("tracks.col_length"),
+            tr("tracks.col_status"),
+            tr("tracks.col_docx"),
+        ])
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
@@ -122,6 +128,26 @@ class TrackListWidget(QFrame):
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_clear.clicked.connect(self.clear_all)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+
+    def retranslate_ui(self) -> None:
+        """Update all visible strings to the active application language."""
+        self.btn_add_files.setText(tr("tracks.add_files"))
+        self.btn_add_folder.setText(tr("tracks.add_folder"))
+        self.btn_add_folder.setToolTip(tr("tracks.add_folder_tooltip"))
+        self.btn_remove.setText(tr("tracks.remove"))
+        self.btn_clear.setText(tr("tracks.clear"))
+        self.table.setHorizontalHeaderLabels([
+            tr("tracks.col_track"),
+            tr("tracks.col_length"),
+            tr("tracks.col_status"),
+            tr("tracks.col_docx"),
+        ])
+        current_row = self.table.currentRow()
+        self.table.blockSignals(True)
+        self._refresh_table()
+        if 0 <= current_row < self.table.rowCount():
+            self.table.selectRow(current_row)
+        self.table.blockSignals(False)
 
     def apply_theme(self) -> None:
         """Apply the active palette to the queue table and status colors."""
@@ -170,10 +196,10 @@ class TrackListWidget(QFrame):
             event.ignore()
 
     def _on_add_files_clicked(self) -> None:
-        ext_filter = "Audio & Video Files (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma *.mp4 *.mkv);;All Files (*)"
+        ext_filter = tr("tracks.file_filter")
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Audio Files for Transcription",
+            tr("tracks.select_files_title"),
             "",
             ext_filter,
         )
@@ -181,7 +207,7 @@ class TrackListWidget(QFrame):
             self.add_audio_files([Path(f) for f in files])
 
     def _on_add_folder_clicked(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Audio Files")
+        folder = QFileDialog.getExistingDirectory(self, tr("tracks.select_folder_title"))
         if folder:
             self.add_audio_files([Path(folder)])
 
@@ -223,8 +249,8 @@ class TrackListWidget(QFrame):
         if error_files:
             QMessageBox.warning(
                 self,
-                "Warning",
-                f"Some audio files could not be loaded:\n" + "\n".join(error_files[:5]),
+                tr("tracks.warn_title"),
+                tr("tracks.warn_load_body", errors="\n".join(error_files[:5])),
             )
 
         if self._tracks and self.table.currentRow() == -1:
@@ -242,7 +268,7 @@ class TrackListWidget(QFrame):
             total_dur = track.info.duration
             slice_cfg = track.slice_config
             if slice_cfg.is_full(total_dur):
-                range_str = f"Full ({format_seconds(total_dur)})"
+                range_str = tr("tracks.range_full", duration=format_seconds(total_dur))
             else:
                 s = slice_cfg.start_sec
                 e = slice_cfg.effective_end(total_dur)
@@ -253,7 +279,7 @@ class TrackListWidget(QFrame):
             self.table.setItem(row, 1, item_dur)
 
             # Column 2: Status
-            status_text = track.status_message or track.status.value
+            status_text = display_track_status(track.status_message, track.status)
             item_status = QTableWidgetItem(status_text)
             item_status.setTextAlignment(Qt.AlignCenter)
             item_status.setForeground(QColor(_status_color(track.status)))
@@ -319,7 +345,7 @@ class TrackListWidget(QFrame):
         total_dur = track.info.duration
         slice_cfg = track.slice_config
         if slice_cfg.is_full(total_dur):
-            range_str = f"Full ({format_seconds(total_dur)})"
+            range_str = tr("tracks.range_full", duration=format_seconds(total_dur))
         else:
             s = slice_cfg.start_sec
             e = slice_cfg.effective_end(total_dur)
@@ -332,7 +358,7 @@ class TrackListWidget(QFrame):
         # Update Status column
         item_status = self.table.item(row, 2)
         if item_status:
-            item_status.setText(track.status_message or track.status.value)
+            item_status.setText(display_track_status(track.status_message, track.status))
             item_status.setForeground(QColor(_status_color(track.status)))
 
         # Update Docx column
