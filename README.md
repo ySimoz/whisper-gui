@@ -1,71 +1,59 @@
 <p align="center">
-  <img src="assets/icon.png" width="96" height="96" alt="Whisper GUI Logo" />
+  <img src="assets/icon.png" width="96" height="96" alt="Whisper GUI" />
 </p>
 
 <h1 align="center">Whisper GUI</h1>
 
 <p align="center">
-  <strong>Fast, private, local audio transcription with multi-track queue, audio trimming, and Microsoft Word export.</strong>
+  Offline desktop audio transcription with a multi-track queue, FFmpeg range trimming, six export formats, and optional LLM polishing.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue?style=flat-square" alt="Platforms" />
-  <img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-green?style=flat-square" alt="Python Version" />
-  <img src="https://img.shields.io/badge/Engine-faster--whisper-orange?style=flat-square" alt="Engine" />
-  <img src="https://img.shields.io/badge/UI-PySide6%20(Qt%206)-purple?style=flat-square" alt="UI" />
-  <img src="https://img.shields.io/badge/Tests-88%20Passing-brightgreen?style=flat-square" alt="Tests" />
+  <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-232325?style=flat-square&labelColor=141415" alt="Platforms" />
+  <img src="https://img.shields.io/badge/Python-3.10%2B-232325?style=flat-square&labelColor=141415" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/Tests-88%20Passing-232325?style=flat-square&labelColor=141415" alt="88 Tests Passing" />
+  <img src="https://img.shields.io/badge/License-MIT-232325?style=flat-square&labelColor=141415" alt="MIT License" />
 </p>
 
 ---
 
-## Overview
+## Preview
 
-**Whisper GUI** is a desktop application designed to transcribe lectures, meetings, podcasts, and interviews directly on your machine. All speech recognition executes 100% offline using `faster-whisper` (CTranslate2)—audio files never leave your computer.
+### Workspace & Multi-Track Drawer
+Queue multiple files, switch per-track transcripts, edit text inline, search with `Ctrl/Cmd+F`, and export to `.docx`, `.pdf`, `.md`, `.txt`, `.srt`, or `.vtt`.
 
----
+![Workspace and lateral tracks drawer](assets/screenshots/workspace.png)
 
-## Workflow Preview
-
-### 1. Workspace & Multi-Track Lateral Drawer
-The slide-out drawer keeps your audio queue organized with live track progress, trim indicators, and inline transcript editing, search, and export (`Word`, `SRT`, `VTT`, `TXT`):
-
-![Workspace with Lateral Drawer](assets/screenshots/workspace.png)
-
----
-
-### 2. Audio Trimming
-Frame-accurate range selection with `Start`/`End` timestamps and audio preview playback to transcribe only the sections you need:
+### Audio Trimming
+Select exact `HH:MM:SS` start and end timestamps and preview playback before transcribing without modifying the source file.
 
 <p align="center">
-  <img src="assets/screenshots/trim_dialog.png" width="600" alt="Audio Trimming Dialog" />
+  <img src="assets/screenshots/trim_dialog.png" width="560" alt="Trim Audio dialog" />
 </p>
 
----
+### Settings & Appearance
+Switch between **Graphite** and **Blush Pink** themes, configure Whisper models and hardware options, and manage optional LLM post-processing.
 
-### 3. Dedicated Settings
-Sequential, uncompressed configuration for Whisper models, inference hardware, CPU thread allocation, and optional speech polishing:
-
-![Dedicated Settings Page](assets/screenshots/settings.png)
+![Settings and appearance page](assets/screenshots/settings.png)
 
 ---
 
-## Features
+## Capabilities
 
-- **100% Offline & Private**: Speech recognition runs entirely on your local hardware (Apple Silicon NEON, Intel AVX2, or NVIDIA CUDA). Audio never leaves your device.
-- **Lateral Tracks Drawer**: Slide-out sidebar to manage multiple audio files, check per-track statuses, and trigger one-click batch transcription.
-- **Audio Trimming (FFmpeg)**: Set precise start and end timestamps (`HH:MM:SS`) to transcribe specific excerpts without re-encoding or modifying the original media.
-- **Microsoft Word (.docx) Export**: Automatically creates formatted Word documents with timestamps, metadata headers, and styled paragraph structure.
-- **RAM-Conscious Model Management**: Pre-configured with `large-v3-turbo` for optimal speed and accuracy, with live memory indicators and a 1-click **Unload Model** button to free RAM immediately.
-- **Speech Polishing (Optional)**: Optionally cleans verbal fillers ("umms", "uhs", unintentional repetitions) into readable prose using your own custom prompt instructions.
-- **Broad Format Support**: Transcribes `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, `.wma`, `.mp4`, `.mkv`, `.webm`, and `.mov`.
+- **Offline Speech Recognition**: Runs locally on CPU (`macOS` Apple Silicon / Intel, `Windows`, `Linux`) or NVIDIA CUDA (`Windows`, `Linux`) via `faster-whisper` (CTranslate2). Audio never leaves your machine unless you enable optional LLM text polishing.
+- **Multi-Track Queue**: Import files or folders across 13 formats (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, `.wma`, `.mp4`, `.mkv`, `.webm`, `.mov`, `.avi`) and process them sequentially.
+- **FFmpeg Trimming & Preview**: Slice custom time ranges with built-in audio playback before running Whisper.
+- **Six Export Formats & Inline Editing**: Edit transcripts in place, search within the viewer, and export to Microsoft Word (`.docx`), PDF (`.pdf`), Markdown (`.md`), plain text (`.txt`), SubRip (`.srt`), and WebVTT (`.vtt`).
+- **Optional LLM Polishing**: Remove verbal fillers and fix punctuation using **DeepSeek**, **Anthropic (Claude)**, **OpenAI**, **Groq**, or any custom OpenAI-compatible URL (including local **Ollama**) with editable Markdown prompts.
+- **Themes, Memory Controls & Auto-Updates**: Toggle between **Graphite** (dark) and **Blush Pink** (light) themes, unload or delete cached models from disk, and check GitHub Releases for updates.
 
 ---
 
-## 1-Click Launchers
+## Quick Start
 
-Run Whisper GUI on any machine with automated virtualenv setup and dependency installation:
+Download packaged builds from [GitHub Releases](https://github.com/ySimoz/whisper-gui/releases), or run from source using the platform scripts (requires **Python 3.10+** and **FFmpeg** on `PATH`).
 
-### macOS (Apple Silicon & Intel)
+### macOS
 ```bash
 git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
@@ -79,7 +67,7 @@ cd whisper-gui
 run_windows.bat
 ```
 
-### Linux (Ubuntu / Debian / Fedora)
+### Linux
 ```bash
 git clone https://github.com/ySimoz/whisper-gui.git
 cd whisper-gui
@@ -88,88 +76,70 @@ cd whisper-gui
 
 ---
 
-## Architecture & Technical Stack
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    PySide6 (Qt 6) UI                        │
-│  MainWindow  •  TracksDrawer  •  SettingsPage  •  TrimView  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Signals / Slots
-┌──────────────────────────────▼──────────────────────────────┐
-│             Background Worker (QThread Pipeline)            │
-│  - Progress tracking  •  Cancellation token  •  Process IPC │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │                              │
-┌──────────────▼──────────────┐┌──────────────▼───────────────┐
-│   FFmpeg Audio Subprocess   ││ faster-whisper (CTranslate2) │
-│ - 16kHz mono WAV extraction ││ - large-v3-turbo / int8      │
-│ - Frame-accurate slicing    ││ - Local offline inference    │
-└──────────────┬──────────────┘└──────────────┬───────────────┘
-               │                              │
-┌──────────────▼──────────────────────────────▼───────────────┐
-│                    Export & Post-Process                    │
-│  python-docx (.docx builder)  •  Optional LLM Speech Polish │
-└─────────────────────────────────────────────────────────────┘
+PySide6 UI (MainWindow • TrackListWidget • TranscriptView • SettingsPageWidget • TrimAudioDialog)
+   │
+   ▼ QThread signals / slots
+Background Workers (TranscriptionWorker • PolishWorker)
+   │                                       │
+   ▼                                       ▼
+audio_utils.py (ffmpeg / ffprobe)     transcriber.py (faster-whisper / CTranslate2)
+   │                                       │
+   └───────────────────┬───────────────────┘
+                       ▼
+Export & Post-Processing (docx_exporter.py • exporters.py • llm_cleaner.py)
 ```
 
-- **Frontend Architecture**: Written in **PySide6 (Qt 6)** with a single-window design. The navigation uses `QStackedWidget` to eliminate confusing modal dialogs.
-- **Inference Engine**: Powered by **faster-whisper** (CTranslate2 engine), achieving up to 4x faster transcription than vanilla Whisper with significantly lower memory usage.
-- **Audio Pipeline**: Non-blocking **FFmpeg** execution via isolated subprocess argument vectors (`shell=False`), preventing shell injection and supporting graceful tree termination (`taskkill` on Windows, `killpg` on POSIX).
-- **Process Isolation**: Slicing and transcription tasks execute in dedicated background threads to keep the user interface fluid and responsive at all times.
-- **Document Exporter**: Pure Python document generation via **python-docx**, outputting clean typography, metadata headers, and styled paragraph spacing.
+- **UI Layer**: Two-page `QStackedWidget` navigation in `MainWindow` with focused modal dialogs (`TrimAudioDialog`, `InstructionEditorDialog`, `UpdateDialog`) and live theme switching via [theme.py](src/whisper_gui/ui/theme.py).
+- **Audio Pipeline**: Invokes `ffmpeg` and `ffprobe` directly with `shell=False` and cross-platform process termination (`taskkill` on Windows, `killpg` on POSIX).
+- **Transcription & Polishing**: `TranscriptionWorker` and `PolishWorker` run on `QThread` so progress updates, cancellation, and multi-track queuing keep the interface responsive.
+- **Zero-SDK HTTP & Exports**: `llm_cleaner.py` uses Python's `urllib` with `certifi` TLS roots; exports use `python-docx` for `.docx` and Qt/stdlib writers for `.pdf`, `.md`, `.txt`, `.srt`, and `.vtt`.
 
 ---
 
 ## Development & Testing
 
 ```bash
-# Set up development virtual environment
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# Install package with development dependencies
 pip install -e ".[dev]"
-
-# Run full test suite (86 unit & integration tests)
-pytest -v
+QT_QPA_PLATFORM=offscreen pytest -v
 ```
 
 ---
 
-## Standalone Distribution
+## Standalone Packaging
 
-To compile a native executable that runs without requiring Python installed:
+Build a local desktop bundle without requiring a system Python installation at runtime:
 
 ```bash
 pip install pyinstaller
 python scripts/bundle_app.py
 ```
 
-- **macOS**: Generates `dist/WhisperGUI.app`
-- **Windows**: Generates `dist/WhisperGUI/WhisperGUI.exe`
-- **Linux**: Generates `dist/WhisperGUI/WhisperGUI`
-
-Standalone binaries are also compiled automatically across all three operating systems via GitHub Actions on every release tag.
+Outputs `dist/WhisperGUI.app` on macOS, `dist/WhisperGUI/WhisperGUI.exe` on Windows, and `dist/WhisperGUI/WhisperGUI` on Linux. Release tags (`v*`) also trigger automated cross-platform builds via GitHub Actions.
 
 ---
 
 ## Data & Storage Locations
 
-Settings, cached models, and temporary files are stored outside the application directory so in-app updates preserve your configuration:
+Configuration and cached models stay outside the application bundle so updates preserve settings:
 
 | Data | Windows | macOS | Linux |
 |---|---|---|---|
-| **Settings** (`QSettings`) | Registry: `HKCU\Software\WhisperGUI\WhisperAudioTranscriber` | `~/Library/Preferences/com.whispergui.WhisperAudioTranscriber.plist` | `~/.config/WhisperGUI/WhisperAudioTranscriber.conf` |
-| **LLM API key** | Encrypted via Windows DPAPI (`LLM/api_key_dpapi` in Registry) | macOS Keychain (`WhisperGUI` / `llm_api_key`) | Secret Service via `secret-tool` (or `QSettings` fallback) |
-| **Downloaded Whisper models** (`HF_HUB_CACHE`) | `%USERPROFILE%\.cache\huggingface\hub\` | `~/.cache/huggingface/hub/` | `~/.cache/huggingface/hub/` |
-| **Temporary audio slices & update staging** | `%TEMP%` | `$TMPDIR` | `/tmp` |
-| **Exported transcripts** | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) | Source audio folder (or custom output folder) |
+| **Settings** (`QSettings`, incl. theme) | `HKCU\Software\WhisperGUI\WhisperAudioTranscriber` | `~/Library/Preferences/com.whispergui.WhisperAudioTranscriber.plist` | `~/.config/WhisperGUI/WhisperAudioTranscriber.conf` |
+| **LLM API Key** | Windows DPAPI (`LLM/api_key_dpapi`) | macOS Keychain (`WhisperGUI` / `llm_api_key`) | `secret-tool` (`QSettings` fallback) |
+| **Whisper Models** (`HF_HUB_CACHE`) | `%USERPROFILE%\.cache\huggingface\hub\` | `~/.cache/huggingface/hub/` | `~/.cache/huggingface/hub/` |
+| **Temp Slices & Updates** | `%TEMP%` | `$TMPDIR` | `/tmp` |
+| **Transcripts** | Source audio folder (or custom output directory) | Source audio folder (or custom output directory) | Source audio folder (or custom output directory) |
 
-> **Security note:** On macOS and Windows (and Linux when `secret-tool` is installed), LLM API keys are stored via OS credential storage rather than plain text; any legacy plain-text key is migrated automatically on load.
+LLM API keys are stored in OS credential storage on macOS, Windows, and Linux (`secret-tool`), migrating any legacy plain-text key automatically on load.
 
 ---
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE).
