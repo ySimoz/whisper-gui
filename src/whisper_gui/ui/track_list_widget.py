@@ -22,34 +22,24 @@ from PySide6.QtWidgets import (
 
 from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_info
 from whisper_gui.models import AudioTrack, TrackStatus
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BG_PANEL_ALT,
-    COLOR_BG_RAISED,
-    COLOR_BG_SURFACE,
-    COLOR_BORDER,
-    COLOR_NEGATIVE,
-    COLOR_POSITIVE,
-    COLOR_PRIMARY,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    COLOR_WARNING,
-    fixed_mono_font,
-)
+from whisper_gui.ui.theme import fixed_mono_font, get_palette
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma",
     ".mp4", ".mkv", ".webm", ".mov", ".avi",
 }
 
-STATUS_COLORS = {
-    TrackStatus.QUEUED: COLOR_TEXT_MUTED,
-    TrackStatus.SLICING: COLOR_WARNING,
-    TrackStatus.TRANSCRIBING: COLOR_PRIMARY,
-    TrackStatus.COMPLETED: COLOR_POSITIVE,
-    TrackStatus.CANCELLED: COLOR_NEGATIVE,
-    TrackStatus.ERROR: COLOR_NEGATIVE,
-}
+def _status_color(status: TrackStatus) -> str:
+    p = get_palette()
+    mapping = {
+        TrackStatus.QUEUED: p.text_muted,
+        TrackStatus.SLICING: p.warning,
+        TrackStatus.TRANSCRIBING: p.primary,
+        TrackStatus.COMPLETED: p.positive,
+        TrackStatus.CANCELLED: p.negative,
+        TrackStatus.ERROR: p.negative,
+    }
+    return mapping.get(status, p.text_muted)
 
 
 class TrackListWidget(QFrame):
@@ -122,25 +112,9 @@ class TrackListWidget(QFrame):
         self.table.setTextElideMode(Qt.ElideMiddle)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
-        self.table.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {COLOR_BG_INPUT};
-                alternate-background-color: {COLOR_BG_PANEL_ALT};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
-                font-size: 12px;
-                color: {COLOR_TEXT_MAIN};
-            }}
-            QTableWidget::item {{
-                border-bottom: 1px solid {COLOR_BORDER};
-                padding: 4px 8px;
-            }}
-            QTableWidget::item:selected {{
-                background-color: {COLOR_BG_RAISED};
-                color: {COLOR_TEXT_MAIN};
-            }}
-        """)
         layout.addWidget(self.table)
+
+        self.apply_theme()
 
         # Connect signals
         self.btn_add_files.clicked.connect(self._on_add_files_clicked)
@@ -148,6 +122,32 @@ class TrackListWidget(QFrame):
         self.btn_remove.clicked.connect(self._on_remove_clicked)
         self.btn_clear.clicked.connect(self.clear_all)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+
+    def apply_theme(self) -> None:
+        """Apply the active palette to the queue table and status colors."""
+        p = get_palette()
+        self.table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {p.bg_input};
+                alternate-background-color: {p.bg_panel_alt};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                font-size: 12px;
+                color: {p.text_main};
+            }}
+            QTableWidget::item {{
+                border-bottom: 1px solid {p.border};
+                padding: 4px 8px;
+            }}
+            QTableWidget::item:selected {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+            }}
+        """)
+        for row, track in enumerate(self._tracks):
+            item_status = self.table.item(row, 2)
+            if item_status is not None:
+                item_status.setForeground(QColor(_status_color(track.status)))
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
@@ -256,8 +256,7 @@ class TrackListWidget(QFrame):
             status_text = track.status_message or track.status.value
             item_status = QTableWidgetItem(status_text)
             item_status.setTextAlignment(Qt.AlignCenter)
-            color_hex = STATUS_COLORS.get(track.status, COLOR_TEXT_MUTED)
-            item_status.setForeground(QColor(color_hex))
+            item_status.setForeground(QColor(_status_color(track.status)))
             self.table.setItem(row, 2, item_status)
 
             # Column 3: Output Docx
@@ -334,8 +333,7 @@ class TrackListWidget(QFrame):
         item_status = self.table.item(row, 2)
         if item_status:
             item_status.setText(track.status_message or track.status.value)
-            color_hex = STATUS_COLORS.get(track.status, "#495057")
-            item_status.setForeground(QColor(color_hex))
+            item_status.setForeground(QColor(_status_color(track.status)))
 
         # Update Docx column
         item_docx = self.table.item(row, 3)

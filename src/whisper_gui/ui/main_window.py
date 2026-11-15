@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    QRectF,
+    QSettings,
+    QSize,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QFont,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -39,25 +60,13 @@ from whisper_gui.ui.range_selector import RangeSelectorWidget, TrimAudioDialog
 from whisper_gui.ui.settings_page import SettingsPageWidget
 from whisper_gui.ui.settings_panel import SettingsPanel
 from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BG_RAISED,
-    COLOR_BG_SURFACE,
-    COLOR_BG_WINDOW,
-    COLOR_BORDER,
-    COLOR_BORDER_LIGHT,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_PRESSED,
-    COLOR_PRIMARY_TEXT,
-    COLOR_SECONDARY,
-    COLOR_SECONDARY_HOVER,
-    COLOR_SECONDARY_TEXT,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    GLOBAL_STYLESHEET,
+    build_stylesheet,
     fixed_mono_font,
+    get_palette,
+    get_theme_name,
+    load_tinted_pixmap,
     load_ui_icon,
+    set_theme,
 )
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
@@ -93,6 +102,7 @@ class DropzoneCard(QFrame):
         super().mousePressEvent(event)
 
     def paintEvent(self, event) -> None:
+        p = get_palette()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -100,14 +110,93 @@ class DropzoneCard(QFrame):
         path = QPainterPath()
         path.addRoundedRect(rect, 12.0, 12.0)
 
-        fill = QColor(COLOR_BG_RAISED if self._hovered else COLOR_BG_SURFACE)
+        fill = QColor(p.bg_raised if self._hovered else p.bg_surface)
         painter.fillPath(path, fill)
 
-        pen = QPen(QColor(COLOR_TEXT_MUTED if self._hovered else COLOR_BORDER_LIGHT), 1.0)
+        pen = QPen(QColor(p.text_muted if self._hovered else p.border_light), 1.0)
         pen.setCapStyle(Qt.FlatCap)
         pen.setDashPattern([5.0, 4.0])
         painter.setPen(pen)
         painter.drawPath(path)
+
+
+class ThemeDropOverlay(QWidget):
+    """Animated radial drop reveal overlaying old snapshot while live theme updates beneath."""
+
+    def __init__(
+        self,
+        parent: QWidget,
+        old_pixmap: QPixmap,
+        origin: QPoint,
+        edge_color: str,
+    ) -> None:
+        super().__init__(parent)
+        self._old_pixmap = old_pixmap
+        self._origin = origin
+        self._edge_color = QColor(edge_color)
+        self._radius = 0.0
+
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setGeometry(parent.rect())
+
+        w, h = float(parent.width()), float(parent.height())
+        max_r = max(
+            math.hypot(origin.x(), origin.y()),
+            math.hypot(w - origin.x(), origin.y()),
+            math.hypot(origin.x(), h - origin.y()),
+            math.hypot(w - origin.x(), h - origin.y()),
+        )
+
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(320)
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(max_r)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._on_step)
+        self._anim.finished.connect(self._on_finished)
+
+    def start(self) -> None:
+        self.show()
+        self.raise_()
+        self._anim.start()
+
+    def cancel(self) -> None:
+        self._anim.stop()
+        self.hide()
+        self.setParent(None)
+        self.deleteLater()
+
+    def _on_step(self, value: float) -> None:
+        self._radius = float(value)
+        self.update()
+
+    def _on_finished(self) -> None:
+        self.hide()
+        self.setParent(None)
+        self.deleteLater()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        outer = QPainterPath()
+        outer.setFillRule(Qt.OddEvenFill)
+        outer.addRect(QRectF(self.rect()))
+        r = self._radius
+        outer.addEllipse(QPointF(self._origin), r, r)
+
+        painter.save()
+        painter.setClipPath(outer)
+        painter.drawPixmap(self.rect(), self._old_pixmap)
+        painter.restore()
+
+        if r > 1.0:
+            ring_color = QColor(self._edge_color)
+            ring_color.setAlpha(140)
+            painter.setPen(QPen(ring_color, 1.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(self._origin), r, r)
 
 
 class MainWindow(QMainWindow):
@@ -118,7 +207,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Whisper GUI v{__version__}")
         self.resize(960, 680)
         self.setMinimumSize(720, 480)
-        self.setStyleSheet(GLOBAL_STYLESHEET)
         self.setAcceptDrops(True)
 
         # Set window icon
@@ -133,8 +221,10 @@ class MainWindow(QMainWindow):
         self._active_track: AudioTrack | None = None
         self._update_check_worker: UpdateCheckWorker | None = None
         self._manual_update_check = False
+        self._theme_overlay: ThemeDropOverlay | None = None
 
         self._build_ui()
+        self.apply_theme()
         self._load_settings()
         self._on_model_changed()
         self._check_dependencies()
@@ -161,65 +251,38 @@ class MainWindow(QMainWindow):
         transcribe_vbox.setContentsMargins(16, 12, 16, 12)
 
         # 1. Header Bar
-        header_frame = QFrame()
-        header_frame.setObjectName("main_header")
-        header_frame.setFixedHeight(48)
-        header_frame.setStyleSheet(f"""
-            #main_header {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-        header_layout = QHBoxLayout(header_frame)
+        self.header_frame = QFrame()
+        self.header_frame.setObjectName("main_header")
+        self.header_frame.setFixedHeight(48)
+        header_layout = QHBoxLayout(self.header_frame)
         header_layout.setContentsMargins(12, 0, 12, 0)
         header_layout.setSpacing(12)
         header_layout.setAlignment(Qt.AlignVCenter)
 
         # Left side: Lateral Drawer Toggle + Title + Model Badge
         self.btn_toggle_drawer = QPushButton("Tracks (0)")
-        self.btn_toggle_drawer.setIcon(load_ui_icon("tracks"))
         self.btn_toggle_drawer.setIconSize(QSize(16, 16))
         self.btn_toggle_drawer.setCheckable(True)
-        self.btn_toggle_drawer.setStyleSheet(f"""
-            QPushButton {{
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QPushButton:checked {{
-                background-color: {COLOR_BG_RAISED};
-                color: {COLOR_TEXT_MAIN};
-                border-color: {COLOR_BORDER_LIGHT};
-            }}
-        """)
         self.btn_toggle_drawer.clicked.connect(self._toggle_tracks_drawer)
         self.btn_toggle_queue = self.btn_toggle_drawer  # backward compatibility alias
         header_layout.addWidget(self.btn_toggle_drawer)
 
-        title_lbl = QLabel("Whisper GUI")
-        title_lbl.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
-        header_layout.addWidget(title_lbl)
+        self.title_lbl = QLabel("Whisper GUI")
+        header_layout.addWidget(self.title_lbl)
 
         self.lbl_model_badge = QLabel("Model: large-v3-turbo")
         self.lbl_model_badge.setFont(fixed_mono_font(12))
-        self.lbl_model_badge.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         header_layout.addWidget(self.lbl_model_badge)
 
         header_layout.addStretch()
 
         self.btn_open_settings = QPushButton("Settings")
-        self.btn_open_settings.setIcon(load_ui_icon("settings"))
         self.btn_open_settings.setIconSize(QSize(16, 16))
         self.btn_open_settings.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_open_settings.clicked.connect(self._open_settings_page)
         header_layout.addWidget(self.btn_open_settings)
 
-        transcribe_vbox.addWidget(header_frame)
+        transcribe_vbox.addWidget(self.header_frame)
 
         # 2. Main Content Splitter (Lateral Drawer on left | Hero Workspace)
         self.main_splitter = QSplitter(Qt.Horizontal)
@@ -230,17 +293,6 @@ class MainWindow(QMainWindow):
         self.tracks_drawer.setObjectName("tracks_drawer")
         self.tracks_drawer.setMinimumWidth(320)
         self.tracks_drawer.setMaximumWidth(460)
-        self.tracks_drawer.setStyleSheet(f"""
-            #tracks_drawer {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
         self.queue_drawer = self.tracks_drawer  # backward compatibility alias
 
         drawer_vbox = QVBoxLayout(self.tracks_drawer)
@@ -250,25 +302,22 @@ class MainWindow(QMainWindow):
         drawer_hdr = QHBoxLayout()
         drawer_hdr.setSpacing(8)
         self.lbl_drawer_title = QLabel("Tracks")
-        self.lbl_drawer_title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {COLOR_TEXT_MAIN};")
         drawer_hdr.addWidget(self.lbl_drawer_title)
 
         self.lbl_drawer_count = QLabel("0 tracks")
         self.lbl_drawer_count.setFont(fixed_mono_font(11))
-        self.lbl_drawer_count.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         drawer_hdr.addWidget(self.lbl_drawer_count)
 
         drawer_hdr.addStretch()
 
-        btn_close_drawer = QPushButton()
-        btn_close_drawer.setObjectName("btn_close_drawer")
-        btn_close_drawer.setIcon(load_ui_icon("close"))
-        btn_close_drawer.setIconSize(QSize(14, 14))
-        btn_close_drawer.setFixedSize(28, 28)
-        btn_close_drawer.setToolTip("Close drawer")
-        btn_close_drawer.setStyleSheet("padding: 0px;")
-        btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
-        drawer_hdr.addWidget(btn_close_drawer)
+        self.btn_close_drawer = QPushButton()
+        self.btn_close_drawer.setObjectName("btn_close_drawer")
+        self.btn_close_drawer.setIconSize(QSize(14, 14))
+        self.btn_close_drawer.setFixedSize(28, 28)
+        self.btn_close_drawer.setToolTip("Close drawer")
+        self.btn_close_drawer.setStyleSheet("padding: 0px;")
+        self.btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
+        drawer_hdr.addWidget(self.btn_close_drawer)
         drawer_vbox.addLayout(drawer_hdr)
 
         self.track_list = TrackListWidget()
@@ -304,15 +353,11 @@ class MainWindow(QMainWindow):
         drop_layout.setAlignment(Qt.AlignCenter)
 
         self.lbl_drop_title = QLabel("Import File")
-        self.lbl_drop_title.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {COLOR_TEXT_MAIN};")
         self.lbl_drop_title.setAlignment(Qt.AlignCenter)
         drop_layout.addWidget(self.lbl_drop_title)
 
         self.lbl_drop_icon = QLabel()
         self.lbl_drop_icon.setAlignment(Qt.AlignCenter)
-        upload_icon_path = get_asset_path("upload_icon.svg")
-        if upload_icon_path:
-            self.lbl_drop_icon.setPixmap(QIcon(str(upload_icon_path)).pixmap(QSize(48, 48)))
         drop_layout.addWidget(self.lbl_drop_icon)
 
         center_layout.addWidget(self.dropzone_card)
@@ -320,17 +365,6 @@ class MainWindow(QMainWindow):
         # Active Track Card (shown when >= 1 track loaded)
         self.active_card = QFrame()
         self.active_card.setObjectName("active_card")
-        self.active_card.setStyleSheet(f"""
-            #active_card {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
         card_layout = QVBoxLayout(self.active_card)
         card_layout.setContentsMargins(16, 16, 16, 16)
         card_layout.setSpacing(12)
@@ -340,17 +374,14 @@ class MainWindow(QMainWindow):
         track_row.setSpacing(12)
 
         self.lbl_active_name = QLabel("Track Name")
-        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {COLOR_TEXT_MAIN};")
         track_row.addWidget(self.lbl_active_name, stretch=1)
 
         self.lbl_active_meta = QLabel("00:00 • 0 MB")
         self.lbl_active_meta.setFont(fixed_mono_font(12))
-        self.lbl_active_meta.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         track_row.addWidget(self.lbl_active_meta)
 
         self.lbl_active_slice = QLabel("Full Audio")
         self.lbl_active_slice.setFont(fixed_mono_font(12))
-        self.lbl_active_slice.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         track_row.addWidget(self.lbl_active_slice)
         card_layout.addLayout(track_row)
 
@@ -359,7 +390,6 @@ class MainWindow(QMainWindow):
         actions_row.setSpacing(12)
 
         self.btn_open_trim = QPushButton("Trim Audio")
-        self.btn_open_trim.setIcon(load_ui_icon("scissors"))
         self.btn_open_trim.setIconSize(QSize(16, 16))
         self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 12px;")
         self.btn_open_trim.clicked.connect(self._open_trim_dialog)
@@ -373,7 +403,6 @@ class MainWindow(QMainWindow):
         actions_row.addStretch()
 
         self.btn_active_drawer = QPushButton("View All Tracks")
-        self.btn_active_drawer.setIcon(load_ui_icon("tracks"))
         self.btn_active_drawer.setIconSize(QSize(16, 16))
         self.btn_active_drawer.setStyleSheet("padding: 6px 12px; font-size: 12px;")
         self.btn_active_drawer.clicked.connect(self._open_tracks_drawer)
@@ -397,52 +426,12 @@ class MainWindow(QMainWindow):
 
         self.btn_start = QPushButton("Transcribe Audio")
         self.btn_start.setFixedHeight(40)
-        self.btn_start.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                font-weight: 500;
-                font-size: 13px;
-                border-radius: 8px;
-                border: none;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_PRIMARY_HOVER};
-            }}
-            QPushButton:pressed {{
-                background-color: {COLOR_PRIMARY_PRESSED};
-            }}
-            QPushButton:disabled {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_HINT};
-                border: 1px solid {COLOR_BORDER};
-            }}
-        """)
         self.btn_start.clicked.connect(self._on_start_clicked)
         transcribe_row.addWidget(self.btn_start, stretch=1)
 
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setFixedHeight(40)
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_SECONDARY};
-                color: {COLOR_SECONDARY_TEXT};
-                font-weight: 500;
-                font-size: 13px;
-                padding: 0 20px;
-                border-radius: 8px;
-                border: none;
-            }}
-            QPushButton:hover {{
-                background-color: {COLOR_SECONDARY_HOVER};
-            }}
-            QPushButton:disabled {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_HINT};
-                border: 1px solid {COLOR_BORDER};
-            }}
-        """)
         self.btn_stop.clicked.connect(self._on_stop_clicked)
         transcribe_row.addWidget(self.btn_stop)
 
@@ -484,12 +473,159 @@ class MainWindow(QMainWindow):
         self.range_selector.range_changed.connect(self._on_range_changed)
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
         self.settings_panel.check_updates_requested.connect(lambda: self._check_for_updates(manual=True))
+        self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
         self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
         self.transcript_view.polish_requested.connect(self._on_repolish_clicked)
 
         # Initial state
         self.range_selector.set_track(None)
+
+    def apply_theme(self) -> None:
+        """Apply the active palette to the main window, chrome, icons, and subpanels."""
+        p = get_palette()
+        self.setStyleSheet(build_stylesheet(p))
+
+        self.header_frame.setStyleSheet(f"""
+            #main_header {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.btn_toggle_drawer.setIcon(load_ui_icon("tracks"))
+        self.btn_toggle_drawer.setStyleSheet(f"""
+            QPushButton {{
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 500;
+            }}
+            QPushButton:checked {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+                border-color: {p.border_light};
+            }}
+        """)
+        self.title_lbl.setStyleSheet(f"color: {p.text_main}; font-size: 14px; font-weight: 500;")
+        self.lbl_model_badge.setStyleSheet(f"color: {p.text_muted};")
+        self.btn_open_settings.setIcon(load_ui_icon("settings"))
+
+        self.tracks_drawer.setStyleSheet(f"""
+            #tracks_drawer {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.lbl_drawer_title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {p.text_main};")
+        self.lbl_drawer_count.setStyleSheet(f"color: {p.text_muted};")
+        self.btn_close_drawer.setIcon(load_ui_icon("close"))
+
+        self.lbl_drop_title.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {p.text_main};")
+        drop_pixmap = load_tinted_pixmap("upload_icon.svg", 48, p.text_muted)
+        if not drop_pixmap.isNull():
+            self.lbl_drop_icon.setPixmap(drop_pixmap)
+        self.dropzone_card.update()
+
+        self.active_card.setStyleSheet(f"""
+            #active_card {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {p.text_main};")
+        self.lbl_active_meta.setStyleSheet(f"color: {p.text_muted};")
+        self.lbl_active_slice.setStyleSheet(f"color: {p.text_muted};")
+        self.btn_open_trim.setIcon(load_ui_icon("scissors"))
+        self.btn_active_drawer.setIcon(load_ui_icon("tracks"))
+
+        self.btn_start.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p.primary};
+                color: {p.primary_text};
+                font-weight: 500;
+                font-size: 13px;
+                border-radius: 8px;
+                border: none;
+            }}
+            QPushButton:hover {{
+                background-color: {p.primary_hover};
+            }}
+            QPushButton:pressed {{
+                background-color: {p.primary_pressed};
+            }}
+            QPushButton:disabled {{
+                background-color: {p.bg_input};
+                color: {p.text_hint};
+                border: 1px solid {p.border};
+            }}
+        """)
+        self.btn_stop.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {p.secondary};
+                color: {p.secondary_text};
+                font-weight: 500;
+                font-size: 13px;
+                padding: 0 20px;
+                border-radius: 8px;
+                border: none;
+            }}
+            QPushButton:hover {{
+                background-color: {p.secondary_hover};
+            }}
+            QPushButton:disabled {{
+                background-color: {p.bg_input};
+                color: {p.text_hint};
+                border: 1px solid {p.border};
+            }}
+        """)
+
+        self.track_list.apply_theme()
+        self.transcript_view.apply_theme()
+        self.settings_page.apply_theme()
+        self.settings_panel.apply_theme()
+        self.llm_panel.apply_theme()
+
+    def _on_theme_changed(self, theme_name: str, origin_widget: QWidget | None = None) -> None:
+        if theme_name == get_theme_name():
+            return
+
+        overlay = self._theme_overlay
+        self._theme_overlay = None
+        if overlay is not None:
+            overlay.cancel()
+
+        before_pixmap = self.grab()
+        if isinstance(origin_widget, QWidget):
+            origin = origin_widget.mapTo(self, origin_widget.rect().center())
+        else:
+            origin = QPoint(self.width() // 2, 0)
+
+        new_palette = set_theme(theme_name)
+        self.apply_theme()
+        self._save_settings()
+
+        drop = ThemeDropOverlay(self, before_pixmap, origin, new_palette.primary)
+        self._theme_overlay = drop
+        drop._anim.finished.connect(lambda: self._clear_theme_overlay(drop))
+        drop.start()
+
+    def _clear_theme_overlay(self, drop: ThemeDropOverlay) -> None:
+        if self._theme_overlay is drop:
+            self._theme_overlay = None
 
     def _toggle_tracks_drawer(self) -> None:
         is_checked = self.btn_toggle_drawer.isChecked()
@@ -911,6 +1047,11 @@ class MainWindow(QMainWindow):
         self.settings_panel.load_settings(settings)
         self.llm_panel.load_settings(settings)
         self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            saved_theme = settings.value("Settings/theme", "graphite", type=str)
+            if saved_theme != get_theme_name():
+                set_theme(saved_theme)
+                self.apply_theme()
 
     def _save_settings(self) -> None:
         settings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
@@ -953,6 +1094,10 @@ class MainWindow(QMainWindow):
         self._update_check_worker = None
 
     def closeEvent(self, event) -> None:
+        overlay = self._theme_overlay
+        self._theme_overlay = None
+        if overlay is not None:
+            overlay.cancel()
         self._save_settings()
         if self._update_check_worker and self._update_check_worker.isRunning():
             self._update_check_worker.requestInterruption()

@@ -909,3 +909,49 @@ def test_dropzone_hover_and_settings_button_fit(qtbot):
     btn = win.settings_panel.btn_check_updates
     assert btn.minimumHeight() <= btn.height() <= btn.maximumHeight()
     assert btn.geometry().bottom() <= win.settings_panel.rect().bottom()
+
+
+def test_theme_switching_drop_animation(qtbot):
+    from PySide6.QtCore import QSettings, QSize
+    from whisper_gui.ui.theme import get_palette, get_theme_name, load_tinted_pixmap, set_theme
+
+    icon_pm = load_tinted_pixmap("icons/settings.svg", 16, "#52323F")
+    assert not icon_pm.isNull()
+    assert icon_pm.devicePixelRatio() == 2.0
+    assert icon_pm.deviceIndependentSize().toSize() == QSize(16, 16)
+    img = icon_pm.toImage()
+    # Verify painted pixels extend into the bottom-right quadrant (no HiDPI quarter-crop)
+    assert any(img.pixelColor(x, y).alpha() > 0 for x in range(20, 32) for y in range(20, 32))
+
+    qsettings = QSettings("WhisperGUI", "WhisperAudioTranscriber")
+    prev_theme = qsettings.value("Settings/theme", "graphite", type=str)
+    set_theme("graphite")
+    try:
+        win = MainWindow()
+        qtbot.addWidget(win)
+        win.resize(960, 680)
+        win._open_settings_page()
+        win.show()
+        QApplication.processEvents()
+
+        assert get_theme_name() == "graphite"
+        assert win.settings_panel.btn_theme_graphite.isChecked()
+
+        win.settings_panel.btn_theme_blush.click()
+        assert get_theme_name() == "blush"
+        palette = get_palette()
+        assert palette.bg_surface == "#F8C8DC"
+        assert palette.bg_window == "#F3CFC6"
+        assert win._theme_overlay is not None
+
+        win.settings_panel.btn_theme_graphite.click()
+        assert get_theme_name() == "graphite"
+        assert win._theme_overlay is not None
+        if win._theme_overlay is not None:
+            win._theme_overlay.cancel()
+            win._theme_overlay = None
+        win.close()
+    finally:
+        set_theme("graphite")
+        qsettings.setValue("Settings/theme", prev_theme)
+        QApplication.processEvents()

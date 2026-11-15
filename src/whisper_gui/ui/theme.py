@@ -1,50 +1,17 @@
-"""Theme definitions and application stylesheets.
+"""Theme definitions, palettes, and application stylesheets.
 
-Matte graphite audio-workstation palette:
-- Neutral graphite surfaces with hairline borders and one restrained accent.
-- Tabular monospace helpers for timecodes and metrics.
-- Uniform 16px SVG line icons.
+Supports switchable Graphite (dark) and Blush Pink (#F8C8DC / #F3CFC6) themes
+with hairline borders, tabular monospace helpers, and tinted 16px SVG icons.
 """
 
 from __future__ import annotations
 
-from PySide6.QtGui import QFont, QFontDatabase, QIcon
+from dataclasses import dataclass
+
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPixmap
 
 from whisper_gui.platform_utils import get_asset_path
-
-# Accent & Semantic Palette
-COLOR_PRIMARY = "#2563EB"
-COLOR_PRIMARY_HOVER = "#3B82F6"
-COLOR_PRIMARY_PRESSED = "#1D4ED8"
-COLOR_PRIMARY_TEXT = "#FFFFFF"
-
-COLOR_SECONDARY = "#E5484D"
-COLOR_SECONDARY_HOVER = "#F06368"
-COLOR_SECONDARY_PRESSED = "#C93B40"
-COLOR_SECONDARY_TEXT = "#FFFFFF"
-
-COLOR_POSITIVE = "#4CC38A"
-COLOR_WARNING = "#E5A93B"
-COLOR_NEGATIVE = "#E5484D"
-
-# Graphite Neutral Ramp
-COLOR_BG_WINDOW = "#141415"
-COLOR_BG_SURFACE = "#19191B"
-COLOR_BG_RAISED = "#232325"
-COLOR_BG_INPUT = "#0F0F10"
-COLOR_BG_PANEL_ALT = "#161618"
-
-# Hairline Structural Borders
-COLOR_BORDER = "#2B2B2E"
-COLOR_BORDER_LIGHT = "#3C3C40"
-COLOR_BORDER_PRIMARY = "#3B82F6"
-COLOR_BORDER_SECONDARY = "#E5484D"
-
-# Typography
-COLOR_TEXT_MAIN = "#EDEDED"
-COLOR_TEXT_SECONDARY = "#A1A1A6"
-COLOR_TEXT_MUTED = "#85858B"
-COLOR_TEXT_HINT = "#68686E"
 
 _check_asset = get_asset_path("check.svg")
 CHECK_ICON_URL = _check_asset.as_posix() if _check_asset else ""
@@ -52,13 +19,204 @@ CHECK_ICON_URL = _check_asset.as_posix() if _check_asset else ""
 _chevron_asset = get_asset_path("icons/chevron-down.svg")
 CHEVRON_ICON_URL = _chevron_asset.as_posix() if _chevron_asset else ""
 
+_chevron_dark_asset = get_asset_path("icons/chevron-down-dark.svg")
+CHEVRON_DARK_ICON_URL = _chevron_dark_asset.as_posix() if _chevron_dark_asset else CHEVRON_ICON_URL
 
-def load_ui_icon(name: str) -> QIcon:
-    """Load a 16px line icon from assets/icons/<name>.svg."""
-    path = get_asset_path(f"icons/{name}.svg")
-    if path:
-        return QIcon(str(path))
-    return QIcon()
+
+@dataclass(frozen=True)
+class ThemePalette:
+    """Color and asset tokens for a complete application theme."""
+
+    name: str
+    label: str
+    bg_window: str
+    bg_surface: str
+    bg_raised: str
+    bg_input: str
+    bg_panel_alt: str
+    border: str
+    border_light: str
+    button_hover_bg: str
+    button_hover_border: str
+    text_main: str
+    text_secondary: str
+    text_muted: str
+    text_hint: str
+    text_hover: str
+    primary: str
+    primary_hover: str
+    primary_pressed: str
+    primary_text: str
+    secondary: str
+    secondary_hover: str
+    secondary_pressed: str
+    secondary_text: str
+    positive: str
+    warning: str
+    negative: str
+    chevron_url: str
+
+
+GRAPHITE_PALETTE = ThemePalette(
+    name="graphite",
+    label="Graphite",
+    bg_window="#141415",
+    bg_surface="#19191B",
+    bg_raised="#232325",
+    bg_input="#0F0F10",
+    bg_panel_alt="#161618",
+    border="#2B2B2E",
+    border_light="#3C3C40",
+    button_hover_bg="#2C2C30",
+    button_hover_border="#4A4A50",
+    text_main="#EDEDED",
+    text_secondary="#A1A1A6",
+    text_muted="#85858B",
+    text_hint="#68686E",
+    text_hover="#FFFFFF",
+    primary="#2563EB",
+    primary_hover="#3B82F6",
+    primary_pressed="#1D4ED8",
+    primary_text="#FFFFFF",
+    secondary="#E5484D",
+    secondary_hover="#F06368",
+    secondary_pressed="#C93B40",
+    secondary_text="#FFFFFF",
+    positive="#4CC38A",
+    warning="#E5A93B",
+    negative="#E5484D",
+    chevron_url=CHEVRON_ICON_URL,
+)
+
+BLUSH_PALETTE = ThemePalette(
+    name="blush",
+    label="Blush Pink",
+    bg_window="#F3CFC6",
+    bg_surface="#F8C8DC",
+    bg_raised="#F9DAE6",
+    bg_input="#FAE6EE",
+    bg_panel_alt="#F8D8E4",
+    border="#E0B4C5",
+    border_light="#CF9CB1",
+    button_hover_bg="#FBE2EB",
+    button_hover_border="#BC849B",
+    text_main="#52323F",
+    text_secondary="#694754",
+    text_muted="#72505D",
+    text_hint="#967582",
+    text_hover="#3E222E",
+    primary="#A84269",
+    primary_hover="#96365B",
+    primary_pressed="#822C4D",
+    primary_text="#FFFFFF",
+    secondary="#B94656",
+    secondary_hover="#A63A49",
+    secondary_pressed="#8F303D",
+    secondary_text="#FFFFFF",
+    positive="#276E51",
+    warning="#87571A",
+    negative="#B94656",
+    chevron_url=CHEVRON_DARK_ICON_URL,
+)
+
+THEMES: dict[str, ThemePalette] = {
+    "graphite": GRAPHITE_PALETTE,
+    "blush": BLUSH_PALETTE,
+}
+
+_active_palette: ThemePalette = GRAPHITE_PALETTE
+
+# Backward-compatible module-level tokens (synced on set_theme)
+COLOR_PRIMARY = GRAPHITE_PALETTE.primary
+COLOR_PRIMARY_HOVER = GRAPHITE_PALETTE.primary_hover
+COLOR_PRIMARY_PRESSED = GRAPHITE_PALETTE.primary_pressed
+COLOR_PRIMARY_TEXT = GRAPHITE_PALETTE.primary_text
+
+COLOR_SECONDARY = GRAPHITE_PALETTE.secondary
+COLOR_SECONDARY_HOVER = GRAPHITE_PALETTE.secondary_hover
+COLOR_SECONDARY_PRESSED = GRAPHITE_PALETTE.secondary_pressed
+COLOR_SECONDARY_TEXT = GRAPHITE_PALETTE.secondary_text
+
+COLOR_POSITIVE = GRAPHITE_PALETTE.positive
+COLOR_WARNING = GRAPHITE_PALETTE.warning
+COLOR_NEGATIVE = GRAPHITE_PALETTE.negative
+
+COLOR_BG_WINDOW = GRAPHITE_PALETTE.bg_window
+COLOR_BG_SURFACE = GRAPHITE_PALETTE.bg_surface
+COLOR_BG_RAISED = GRAPHITE_PALETTE.bg_raised
+COLOR_BG_INPUT = GRAPHITE_PALETTE.bg_input
+COLOR_BG_PANEL_ALT = GRAPHITE_PALETTE.bg_panel_alt
+
+COLOR_BORDER = GRAPHITE_PALETTE.border
+COLOR_BORDER_LIGHT = GRAPHITE_PALETTE.border_light
+COLOR_BORDER_PRIMARY = GRAPHITE_PALETTE.primary_hover
+COLOR_BORDER_SECONDARY = GRAPHITE_PALETTE.secondary
+
+COLOR_TEXT_MAIN = GRAPHITE_PALETTE.text_main
+COLOR_TEXT_SECONDARY = GRAPHITE_PALETTE.text_secondary
+COLOR_TEXT_MUTED = GRAPHITE_PALETTE.text_muted
+COLOR_TEXT_HINT = GRAPHITE_PALETTE.text_hint
+
+
+def get_palette() -> ThemePalette:
+    """Return the currently active theme palette."""
+    return _active_palette
+
+
+def get_theme_name() -> str:
+    """Return the active theme key ('graphite' or 'blush')."""
+    return _active_palette.name
+
+
+def load_tinted_pixmap(rel_path: str, size: QSize | int, color: str | None = None) -> QPixmap:
+    """Load an SVG/image asset and tint it cleanly at 2x HiDPI resolution."""
+    path = get_asset_path(rel_path)
+    if not path:
+        return QPixmap()
+    qsize = QSize(size, size) if isinstance(size, int) else size
+    dpr = 2.0
+    tinted = QPixmap(int(qsize.width() * dpr), int(qsize.height() * dpr))
+    tinted.setDevicePixelRatio(dpr)
+    tinted.fill(Qt.transparent)
+    painter = QPainter(tinted)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    logical_rect = QRect(QPoint(0, 0), qsize)
+    QIcon(str(path)).paint(painter, logical_rect)
+    painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    painter.fillRect(logical_rect, QColor(color or _active_palette.text_secondary))
+    painter.end()
+    return tinted
+
+
+def load_ui_icon(name: str, color: str | None = None) -> QIcon:
+    """Load a 16px line icon from assets/icons/<name>.svg tinted to the current palette."""
+    pixmap = load_tinted_pixmap(f"icons/{name}.svg", 16, color)
+    return QIcon(pixmap) if not pixmap.isNull() else QIcon()
+
+
+def swatch_icon(primary_hex: str, secondary_hex: str, border_hex: str) -> QIcon:
+    """Create a crisp 14px two-tone circular swatch icon for theme selector buttons."""
+    size = 14
+    dpr = 2.0
+    pm = QPixmap(int(size * dpr), int(size * dpr))
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    rect = QRectF(1.0, 1.0, size - 2.0, size - 2.0)
+
+    clip = QPainterPath()
+    clip.addEllipse(rect)
+    painter.setClipPath(clip)
+    painter.fillRect(QRectF(rect.left(), rect.top(), rect.width() / 2.0 + 0.5, rect.height()), QColor(primary_hex))
+    painter.fillRect(QRectF(rect.center().x(), rect.top(), rect.width() / 2.0 + 0.5, rect.height()), QColor(secondary_hex))
+    painter.setClipping(False)
+
+    painter.setPen(QColor(border_hex))
+    painter.drawEllipse(rect)
+    painter.end()
+    return QIcon(pm)
 
 
 def fixed_mono_font(point_size: int | None = None) -> QFont:
@@ -69,19 +227,22 @@ def fixed_mono_font(point_size: int | None = None) -> QFont:
     return font
 
 
-GLOBAL_STYLESHEET = f"""
+def build_stylesheet(p: ThemePalette | None = None) -> str:
+    """Build the complete application stylesheet for the given palette."""
+    t = p or _active_palette
+    return f"""
 /* Global Window & Typography */
 QMainWindow, QWidget {{
-    background-color: {COLOR_BG_WINDOW};
-    color: {COLOR_TEXT_MAIN};
+    background-color: {t.bg_window};
+    color: {t.text_main};
     font-size: 13px;
     font-weight: 400;
 }}
 
 /* Containers & Surface Cards */
 .QFrame {{
-    background-color: {COLOR_BG_SURFACE};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_surface};
+    border: 1px solid {t.border};
     border-radius: 12px;
 }}
 
@@ -91,11 +252,11 @@ QLabel {{
     border: none;
     border-radius: 0px;
     padding: 0px;
-    color: {COLOR_TEXT_MAIN};
+    color: {t.text_main};
 }}
 
 QGroupBox {{
-    border: 1px solid {COLOR_BORDER};
+    border: 1px solid {t.border};
     border-radius: 12px;
     margin-top: 12px;
     padding-top: 12px;
@@ -104,37 +265,37 @@ QGroupBox {{
 
 /* Form Controls & Inputs */
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {{
-    background-color: {COLOR_BG_INPUT};
-    color: {COLOR_TEXT_MAIN};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_input};
+    color: {t.text_main};
+    border: 1px solid {t.border};
     border-radius: 8px;
     padding: 8px 12px;
-    selection-background-color: {COLOR_PRIMARY};
-    selection-color: {COLOR_PRIMARY_TEXT};
+    selection-background-color: {t.primary};
+    selection-color: {t.primary_text};
 }}
 
 QSpinBox, QDoubleSpinBox, QTimeEdit {{
-    background-color: {COLOR_BG_INPUT};
-    color: {COLOR_TEXT_MAIN};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_input};
+    color: {t.text_main};
+    border: 1px solid {t.border};
     border-radius: 8px;
     padding: 4px 8px;
-    selection-background-color: {COLOR_PRIMARY};
-    selection-color: {COLOR_PRIMARY_TEXT};
+    selection-background-color: {t.primary};
+    selection-color: {t.primary_text};
 }}
 
 QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QTimeEdit:hover, QComboBox:hover {{
-    border: 1px solid {COLOR_BORDER_LIGHT};
+    border: 1px solid {t.border_light};
 }}
 
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTimeEdit:focus, QComboBox:focus {{
-    border: 1px solid {COLOR_PRIMARY};
+    border: 1px solid {t.primary};
 }}
 
 QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled {{
-    background-color: {COLOR_BG_INPUT};
-    color: {COLOR_TEXT_HINT};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_input};
+    color: {t.text_hint};
+    border: 1px solid {t.border};
 }}
 
 /* Dropdowns / ComboBox */
@@ -147,31 +308,31 @@ QComboBox::drop-down {{
     subcontrol-position: top right;
     width: 28px;
     border: none;
-    border-left: 1px solid {COLOR_BORDER};
+    border-left: 1px solid {t.border};
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
     background-color: transparent;
 }}
 
 QComboBox::drop-down:hover {{
-    background-color: {COLOR_BG_RAISED};
+    background-color: {t.bg_raised};
 }}
 
 QComboBox::down-arrow {{
-    image: url({CHEVRON_ICON_URL});
+    image: url({t.chevron_url});
     width: 14px;
     height: 14px;
 }}
 
 QComboBox QAbstractItemView,
 QComboBox QListView {{
-    background-color: {COLOR_BG_SURFACE};
-    color: {COLOR_TEXT_MAIN};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_surface};
+    color: {t.text_main};
+    border: 1px solid {t.border};
     border-radius: 8px;
     padding: 4px;
-    selection-background-color: {COLOR_BG_RAISED};
-    selection-color: {COLOR_TEXT_MAIN};
+    selection-background-color: {t.bg_raised};
+    selection-color: {t.text_main};
     outline: none;
 }}
 
@@ -184,28 +345,28 @@ QComboBox QListView::item {{
 
 QComboBox QAbstractItemView::item:hover,
 QComboBox QListView::item:hover {{
-    background-color: {COLOR_BG_RAISED};
-    color: {COLOR_TEXT_MAIN};
+    background-color: {t.bg_raised};
+    color: {t.text_main};
 }}
 
 QComboBox QAbstractItemView::item:selected,
 QComboBox QListView::item:selected {{
-    background-color: {COLOR_PRIMARY};
-    color: {COLOR_PRIMARY_TEXT};
+    background-color: {t.primary};
+    color: {t.primary_text};
 }}
 
 QComboBox QLineEdit {{
     background-color: transparent;
     border: none;
     padding: 0px;
-    color: {COLOR_TEXT_MAIN};
+    color: {t.text_main};
 }}
 
 /* PushButtons */
 QPushButton {{
-    background-color: {COLOR_BG_RAISED};
-    color: {COLOR_TEXT_MAIN};
-    border: 1px solid {COLOR_BORDER_LIGHT};
+    background-color: {t.bg_raised};
+    color: {t.text_main};
+    border: 1px solid {t.border_light};
     border-radius: 8px;
     padding: 5px 12px;
     font-weight: 500;
@@ -214,36 +375,36 @@ QPushButton {{
 }}
 
 QPushButton:hover {{
-    background-color: #2C2C30;
-    border: 1px solid #4A4A50;
+    background-color: {t.button_hover_bg};
+    border: 1px solid {t.button_hover_border};
 }}
 
 QPushButton:pressed {{
-    background-color: {COLOR_BG_SURFACE};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_surface};
+    border: 1px solid {t.border};
 }}
 
 QPushButton:disabled {{
-    background-color: {COLOR_BG_SURFACE};
-    color: {COLOR_TEXT_HINT};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_surface};
+    color: {t.text_hint};
+    border: 1px solid {t.border};
 }}
 
 /* Tabs Widget */
 QTabWidget::pane {{
-    border: 1px solid {COLOR_BORDER};
+    border: 1px solid {t.border};
     border-radius: 8px;
-    background-color: {COLOR_BG_SURFACE};
+    background-color: {t.bg_surface};
     top: -1px;
 }}
 
 QTabBar::tab {{
-    background: {COLOR_BG_WINDOW};
-    color: {COLOR_TEXT_MUTED};
+    background: {t.bg_window};
+    color: {t.text_muted};
     padding: 8px 16px;
     font-weight: 500;
     font-size: 12px;
-    border: 1px solid {COLOR_BORDER};
+    border: 1px solid {t.border};
     border-bottom: none;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
@@ -251,37 +412,37 @@ QTabBar::tab {{
 }}
 
 QTabBar::tab:selected {{
-    background: {COLOR_BG_SURFACE};
-    color: {COLOR_TEXT_MAIN};
-    border: 1px solid {COLOR_BORDER};
-    border-top: 2px solid {COLOR_PRIMARY};
-    border-bottom: 1px solid {COLOR_BG_SURFACE};
+    background: {t.bg_surface};
+    color: {t.text_main};
+    border: 1px solid {t.border};
+    border-top: 2px solid {t.primary};
+    border-bottom: 1px solid {t.bg_surface};
 }}
 
 QTabBar::tab:hover:!selected {{
-    color: {COLOR_TEXT_MAIN};
-    background: {COLOR_BG_RAISED};
+    color: {t.text_main};
+    background: {t.bg_raised};
 }}
 
 /* Table Widget */
 QTableWidget, QTableView {{
-    background-color: {COLOR_BG_INPUT};
-    alternate-background-color: {COLOR_BG_PANEL_ALT};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_input};
+    alternate-background-color: {t.bg_panel_alt};
+    border: 1px solid {t.border};
     border-radius: 8px;
-    gridline-color: {COLOR_BORDER};
-    color: {COLOR_TEXT_MAIN};
-    selection-background-color: {COLOR_BG_RAISED};
-    selection-color: {COLOR_TEXT_MAIN};
+    gridline-color: {t.border};
+    color: {t.text_main};
+    selection-background-color: {t.bg_raised};
+    selection-color: {t.text_main};
 }}
 
 QHeaderView::section {{
-    background-color: {COLOR_BG_SURFACE};
-    color: {COLOR_TEXT_MUTED};
+    background-color: {t.bg_surface};
+    color: {t.text_muted};
     padding: 6px 8px;
     border: none;
-    border-bottom: 1px solid {COLOR_BORDER};
-    border-right: 1px solid {COLOR_BORDER};
+    border-bottom: 1px solid {t.border};
+    border-right: 1px solid {t.border};
     font-weight: 500;
     font-size: 11px;
 }}
@@ -289,7 +450,7 @@ QHeaderView::section {{
 /* CheckBoxes */
 QCheckBox {{
     background-color: transparent;
-    color: {COLOR_TEXT_MAIN};
+    color: {t.text_main};
     spacing: 8px;
     min-height: 24px;
     padding: 2px 0px;
@@ -297,46 +458,46 @@ QCheckBox {{
 }}
 
 QCheckBox:hover {{
-    color: #FFFFFF;
+    color: {t.text_hover};
 }}
 
 QCheckBox::indicator {{
     width: 16px;
     height: 16px;
-    border: 1.5px solid {COLOR_BORDER_LIGHT};
+    border: 1.5px solid {t.border_light};
     border-radius: 4px;
-    background-color: {COLOR_BG_INPUT};
+    background-color: {t.bg_input};
 }}
 
 QCheckBox::indicator:hover {{
-    border: 1.5px solid {COLOR_PRIMARY_HOVER};
-    background-color: {COLOR_BG_RAISED};
+    border: 1.5px solid {t.primary_hover};
+    background-color: {t.bg_raised};
 }}
 
 QCheckBox::indicator:checked {{
-    background-color: {COLOR_PRIMARY};
-    border: 1.5px solid {COLOR_PRIMARY};
+    background-color: {t.primary};
+    border: 1.5px solid {t.primary};
     image: url({CHECK_ICON_URL});
 }}
 
 QCheckBox::indicator:checked:hover {{
-    background-color: {COLOR_PRIMARY_HOVER};
-    border: 1.5px solid {COLOR_PRIMARY_HOVER};
+    background-color: {t.primary_hover};
+    border: 1.5px solid {t.primary_hover};
 }}
 
 QCheckBox:disabled {{
-    color: {COLOR_TEXT_HINT};
+    color: {t.text_hint};
 }}
 
 QCheckBox::indicator:disabled {{
-    border-color: {COLOR_BORDER};
-    background-color: {COLOR_BG_SURFACE};
+    border-color: {t.border};
+    background-color: {t.bg_surface};
 }}
 
 /* Radio Buttons (distinct circular indicator) */
 QRadioButton {{
     background-color: transparent;
-    color: {COLOR_TEXT_MAIN};
+    color: {t.text_main};
     spacing: 8px;
     min-height: 24px;
     padding: 2px 0px;
@@ -344,72 +505,72 @@ QRadioButton {{
 }}
 
 QRadioButton:hover {{
-    color: #FFFFFF;
+    color: {t.text_hover};
 }}
 
 QRadioButton::indicator {{
     width: 16px;
     height: 16px;
-    border: 1px solid {COLOR_BORDER_LIGHT};
+    border: 1px solid {t.border_light};
     border-radius: 9px;
-    background-color: {COLOR_BG_INPUT};
+    background-color: {t.bg_input};
 }}
 
 QRadioButton::indicator:hover {{
-    border: 1px solid {COLOR_PRIMARY_HOVER};
-    background-color: {COLOR_BG_RAISED};
+    border: 1px solid {t.primary_hover};
+    background-color: {t.bg_raised};
 }}
 
 QRadioButton::indicator:checked {{
     width: 8px;
     height: 8px;
-    background-color: {COLOR_BG_INPUT};
-    border: 5px solid {COLOR_PRIMARY};
+    background-color: {t.bg_input};
+    border: 5px solid {t.primary};
     border-radius: 9px;
 }}
 
 QRadioButton:disabled {{
-    color: {COLOR_TEXT_HINT};
+    color: {t.text_hint};
 }}
 
 QRadioButton::indicator:disabled {{
-    border-color: {COLOR_BORDER};
-    background-color: {COLOR_BG_SURFACE};
+    border-color: {t.border};
+    background-color: {t.bg_surface};
 }}
 
-/* Progress Bar (Solid, clean bar) */
+/* Progress Bar */
 QProgressBar {{
-    background-color: {COLOR_BG_INPUT};
-    border: 1px solid {COLOR_BORDER};
+    background-color: {t.bg_input};
+    border: 1px solid {t.border};
     border-radius: 4px;
     text-align: center;
-    color: {COLOR_TEXT_MAIN};
+    color: {t.text_main};
     font-weight: 500;
     font-size: 11px;
     height: 8px;
 }}
 
 QProgressBar::chunk {{
-    background-color: {COLOR_PRIMARY};
+    background-color: {t.primary};
     border-radius: 3px;
 }}
 
 /* Sliders */
 QSlider::groove:horizontal {{
     height: 6px;
-    background: {COLOR_BG_INPUT};
-    border: 1px solid {COLOR_BORDER};
+    background: {t.bg_input};
+    border: 1px solid {t.border};
     border-radius: 3px;
 }}
 
 QSlider::sub-page:horizontal {{
-    background: {COLOR_PRIMARY};
+    background: {t.primary};
     border-radius: 3px;
 }}
 
 QSlider::handle:horizontal {{
-    background: {COLOR_TEXT_MAIN};
-    border: 2px solid {COLOR_PRIMARY};
+    background: {t.text_main};
+    border: 2px solid {t.primary};
     width: 14px;
     height: 14px;
     margin: -5px 0;
@@ -417,13 +578,13 @@ QSlider::handle:horizontal {{
 }}
 
 QSlider::handle:horizontal:hover {{
-    background: #FFFFFF;
-    border: 2px solid {COLOR_PRIMARY_HOVER};
+    background: {t.text_hover};
+    border: 2px solid {t.primary_hover};
 }}
 
 /* Splitters */
 QSplitter::handle {{
-    background-color: {COLOR_BORDER};
+    background-color: {t.border};
 }}
 
 QSplitter::handle:horizontal {{
@@ -436,19 +597,19 @@ QSplitter::handle:vertical {{
 
 /* Scrollbars */
 QScrollBar:vertical {{
-    background: {COLOR_BG_WINDOW};
+    background: {t.bg_window};
     width: 8px;
     margin: 0;
 }}
 
 QScrollBar::handle:vertical {{
-    background: {COLOR_BORDER_LIGHT};
+    background: {t.border_light};
     min-height: 24px;
     border-radius: 4px;
 }}
 
 QScrollBar::handle:vertical:hover {{
-    background: {COLOR_TEXT_MUTED};
+    background: {t.text_muted};
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
@@ -456,22 +617,73 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 }}
 
 QScrollBar:horizontal {{
-    background: {COLOR_BG_WINDOW};
+    background: {t.bg_window};
     height: 8px;
     margin: 0;
 }}
 
 QScrollBar::handle:horizontal {{
-    background: {COLOR_BORDER_LIGHT};
+    background: {t.border_light};
     min-width: 24px;
     border-radius: 4px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
-    background: {COLOR_TEXT_MUTED};
+    background: {t.text_muted};
 }}
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 """
+
+
+def set_theme(name: str) -> ThemePalette:
+    """Switch the active palette and refresh exported module tokens."""
+    global _active_palette
+    global COLOR_PRIMARY, COLOR_PRIMARY_HOVER, COLOR_PRIMARY_PRESSED, COLOR_PRIMARY_TEXT
+    global COLOR_SECONDARY, COLOR_SECONDARY_HOVER, COLOR_SECONDARY_PRESSED, COLOR_SECONDARY_TEXT
+    global COLOR_POSITIVE, COLOR_WARNING, COLOR_NEGATIVE
+    global COLOR_BG_WINDOW, COLOR_BG_SURFACE, COLOR_BG_RAISED, COLOR_BG_INPUT, COLOR_BG_PANEL_ALT
+    global COLOR_BORDER, COLOR_BORDER_LIGHT, COLOR_BORDER_PRIMARY, COLOR_BORDER_SECONDARY
+    global COLOR_TEXT_MAIN, COLOR_TEXT_SECONDARY, COLOR_TEXT_MUTED, COLOR_TEXT_HINT
+    global GLOBAL_STYLESHEET
+
+    palette = THEMES.get(name, GRAPHITE_PALETTE)
+    _active_palette = palette
+
+    COLOR_PRIMARY = palette.primary
+    COLOR_PRIMARY_HOVER = palette.primary_hover
+    COLOR_PRIMARY_PRESSED = palette.primary_pressed
+    COLOR_PRIMARY_TEXT = palette.primary_text
+
+    COLOR_SECONDARY = palette.secondary
+    COLOR_SECONDARY_HOVER = palette.secondary_hover
+    COLOR_SECONDARY_PRESSED = palette.secondary_pressed
+    COLOR_SECONDARY_TEXT = palette.secondary_text
+
+    COLOR_POSITIVE = palette.positive
+    COLOR_WARNING = palette.warning
+    COLOR_NEGATIVE = palette.negative
+
+    COLOR_BG_WINDOW = palette.bg_window
+    COLOR_BG_SURFACE = palette.bg_surface
+    COLOR_BG_RAISED = palette.bg_raised
+    COLOR_BG_INPUT = palette.bg_input
+    COLOR_BG_PANEL_ALT = palette.bg_panel_alt
+
+    COLOR_BORDER = palette.border
+    COLOR_BORDER_LIGHT = palette.border_light
+    COLOR_BORDER_PRIMARY = palette.primary_hover
+    COLOR_BORDER_SECONDARY = palette.secondary
+
+    COLOR_TEXT_MAIN = palette.text_main
+    COLOR_TEXT_SECONDARY = palette.text_secondary
+    COLOR_TEXT_MUTED = palette.text_muted
+    COLOR_TEXT_HINT = palette.text_hint
+
+    GLOBAL_STYLESHEET = build_stylesheet(palette)
+    return palette
+
+
+GLOBAL_STYLESHEET = build_stylesheet(GRAPHITE_PALETTE)

@@ -31,21 +31,7 @@ from whisper_gui.models import (
     TranscriptSegment,
 )
 from whisper_gui.platform_utils import open_path_in_os, reveal_file_in_os
-from whisper_gui.ui.theme import (
-    CHEVRON_ICON_URL,
-    COLOR_BG_INPUT,
-    COLOR_BG_RAISED,
-    COLOR_BG_SURFACE,
-    COLOR_BORDER,
-    COLOR_BORDER_LIGHT,
-    COLOR_PRIMARY,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    COLOR_TEXT_SECONDARY,
-    fixed_mono_font,
-    load_ui_icon,
-)
+from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
 
 
 class TranscriptView(QFrame):
@@ -69,18 +55,6 @@ class TranscriptView(QFrame):
         self._raw_segments_stale: bool = False
 
         self.setObjectName("transcript_view")
-        self.setStyleSheet(f"""
-            #transcript_view {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -92,18 +66,15 @@ class TranscriptView(QFrame):
         prog_header = QHBoxLayout()
         prog_header.setSpacing(8)
 
-        lbl_section = QLabel("Transcript")
-        lbl_section.setStyleSheet(f"font-weight: 500; color: {COLOR_TEXT_MAIN}; font-size: 13px;")
-        prog_header.addWidget(lbl_section)
+        self.lbl_section = QLabel("Transcript")
+        prog_header.addWidget(self.lbl_section)
 
         self.lbl_status = QLabel("Idle")
-        self.lbl_status.setStyleSheet(f"color: {COLOR_TEXT_SECONDARY}; font-size: 12px;")
         prog_header.addWidget(self.lbl_status)
 
         prog_header.addStretch()
         self.lbl_metrics = QLabel("")
         self.lbl_metrics.setFont(fixed_mono_font(11))
-        self.lbl_metrics.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         prog_header.addWidget(self.lbl_metrics)
         layout.addLayout(prog_header)
 
@@ -118,54 +89,25 @@ class TranscriptView(QFrame):
         mode_bar = QHBoxLayout()
         mode_bar.setSpacing(4)
 
-        seg_btn_style = f"""
-            QPushButton {{
-                background-color: transparent;
-                color: {COLOR_TEXT_MUTED};
-                padding: 4px 12px;
-                font-size: 12px;
-                font-weight: 500;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
-            }}
-            QPushButton:hover:enabled {{
-                color: {COLOR_TEXT_MAIN};
-                background-color: {COLOR_BG_RAISED};
-            }}
-            QPushButton:checked {{
-                background-color: {COLOR_BG_RAISED};
-                border: 1px solid {COLOR_BORDER_LIGHT};
-                color: {COLOR_TEXT_MAIN};
-            }}
-            QPushButton:disabled {{
-                color: {COLOR_TEXT_HINT};
-                background-color: transparent;
-            }}
-        """
-
         self.view_btn_group = QButtonGroup(self)
         self.btn_view_raw = QPushButton("Raw")
         self.btn_view_raw.setCheckable(True)
         self.btn_view_raw.setChecked(True)
-        self.btn_view_raw.setStyleSheet(seg_btn_style)
         self.view_btn_group.addButton(self.btn_view_raw)
         mode_bar.addWidget(self.btn_view_raw)
 
         self.btn_view_polished = QPushButton("Polished")
         self.btn_view_polished.setCheckable(True)
         self.btn_view_polished.setEnabled(False)
-        self.btn_view_polished.setStyleSheet(seg_btn_style)
         self.view_btn_group.addButton(self.btn_view_polished)
         mode_bar.addWidget(self.btn_view_polished)
 
         self.btn_polish = QPushButton("Polish")
         self.btn_polish.setEnabled(False)
         self.btn_polish.setToolTip("Polish or re-polish transcript with LLM without re-transcribing")
-        self.btn_polish.setStyleSheet(seg_btn_style)
         mode_bar.addWidget(self.btn_polish)
 
         self.lbl_view_hint = QLabel("")
-        self.lbl_view_hint.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px; padding-left: 4px;")
         mode_bar.addWidget(self.lbl_view_hint)
 
         mode_bar.addStretch()
@@ -173,7 +115,6 @@ class TranscriptView(QFrame):
         self.btn_find = QPushButton("Find")
         self.btn_find.setCheckable(True)
         self.btn_find.setToolTip("Find in transcript (Ctrl/Cmd+F)")
-        self.btn_find.setStyleSheet(seg_btn_style)
         mode_bar.addWidget(self.btn_find)
         layout.addLayout(mode_bar)
 
@@ -201,11 +142,9 @@ class TranscriptView(QFrame):
 
         self.lbl_find_status = QLabel("")
         self.lbl_find_status.setFont(fixed_mono_font(11))
-        self.lbl_find_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; padding: 0 4px;")
         find_layout.addWidget(self.lbl_find_status)
 
         self.btn_find_close = QPushButton()
-        self.btn_find_close.setIcon(load_ui_icon("close"))
         self.btn_find_close.setFixedSize(28, 28)
         self.btn_find_close.setToolTip("Close find bar")
         self.btn_find_close.setStyleSheet("padding: 0px;")
@@ -218,17 +157,6 @@ class TranscriptView(QFrame):
         self.txt_display.setReadOnly(False)
         self.txt_display.setPlaceholderText("Transcribed text appears here")
         self.txt_display.setMinimumHeight(140)
-        self.txt_display.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_MAIN};
-                font-size: 13px;
-                line-height: 1.6;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
-                padding: 12px;
-            }}
-        """)
         layout.addWidget(self.txt_display, stretch=1)
 
         # Bottom action buttons
@@ -240,40 +168,10 @@ class TranscriptView(QFrame):
         btn_layout.addWidget(self.btn_copy)
 
         self.btn_export = QPushButton("Export")
-        self.btn_export.setStyleSheet(f"""
-            QPushButton {{
-                padding: 6px 24px 6px 12px;
-            }}
-            QPushButton::menu-indicator {{
-                image: url({CHEVRON_ICON_URL});
-                subcontrol-origin: padding;
-                subcontrol-position: right center;
-                right: 8px;
-                width: 12px;
-                height: 12px;
-            }}
-        """)
         self.btn_export.setEnabled(False)
         self.btn_open_docx = self.btn_export  # Compatibility alias
 
         self.export_menu = QMenu(self)
-        self.export_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px 6px 12px;
-                border-radius: 4px;
-                color: {COLOR_TEXT_MAIN};
-            }}
-            QMenu::item:selected {{
-                background-color: {COLOR_BG_RAISED};
-                color: {COLOR_TEXT_MAIN};
-            }}
-        """)
 
         act_docx = self.export_menu.addAction("Word (.docx)")
         act_docx.triggered.connect(lambda: self._on_export_format("docx"))
@@ -313,6 +211,8 @@ class TranscriptView(QFrame):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
+        self.apply_theme()
+
         # Shortcuts
         self.find_shortcut = QShortcut(QKeySequence.Find, self)
         self.find_shortcut.activated.connect(self._toggle_find_bar)
@@ -334,6 +234,98 @@ class TranscriptView(QFrame):
         self.btn_open_folder.clicked.connect(self._open_containing_folder)
         self.btn_copy.clicked.connect(self._copy_text)
         self.btn_clear.clicked.connect(self._on_clear_clicked)
+
+    def apply_theme(self) -> None:
+        """Apply the active theme palette to all transcript view elements."""
+        p = get_palette()
+        self.setStyleSheet(f"""
+            #transcript_view {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.lbl_section.setStyleSheet(f"font-weight: 500; color: {p.text_main}; font-size: 13px;")
+        self.lbl_status.setStyleSheet(f"color: {p.text_secondary}; font-size: 12px;")
+        self.lbl_metrics.setStyleSheet(f"color: {p.text_muted};")
+        self.lbl_view_hint.setStyleSheet(f"color: {p.text_muted}; font-size: 11px; padding-left: 4px;")
+        self.lbl_find_status.setStyleSheet(f"color: {p.text_muted}; padding: 0 4px;")
+        self.btn_find_close.setIcon(load_ui_icon("close"))
+
+        seg_btn_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {p.text_muted};
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 500;
+                border: 1px solid {p.border};
+                border-radius: 6px;
+            }}
+            QPushButton:hover:enabled {{
+                color: {p.text_main};
+                background-color: {p.bg_raised};
+            }}
+            QPushButton:checked {{
+                background-color: {p.bg_raised};
+                border: 1px solid {p.border_light};
+                color: {p.text_main};
+            }}
+            QPushButton:disabled {{
+                color: {p.text_hint};
+                background-color: transparent;
+            }}
+        """
+        for btn in (self.btn_view_raw, self.btn_view_polished, self.btn_polish, self.btn_find):
+            btn.setStyleSheet(seg_btn_style)
+
+        self.txt_display.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {p.bg_input};
+                color: {p.text_main};
+                font-size: 13px;
+                line-height: 1.6;
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                padding: 12px;
+            }}
+        """)
+        self.btn_export.setStyleSheet(f"""
+            QPushButton {{
+                padding: 6px 24px 6px 12px;
+            }}
+            QPushButton::menu-indicator {{
+                image: url({p.chevron_url});
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+                right: 8px;
+                width: 12px;
+                height: 12px;
+            }}
+        """)
+        self.export_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px 6px 12px;
+                border-radius: 4px;
+                color: {p.text_main};
+            }}
+            QMenu::item:selected {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+            }}
+        """)
+        if self._raw_segments or self._polished_text is not None or (self._current_result and self._current_result.full_text):
+            self._switch_view(self._active_mode)
 
     def _toggle_find_bar(self) -> None:
         if self.find_bar.isVisible():
@@ -456,8 +448,9 @@ class TranscriptView(QFrame):
 
                 ts_escaped = html.escape(segment.formatted_timerange)
                 text_escaped = html.escape(segment.text)
-                ts_html = f"<span style='color: {COLOR_PRIMARY}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
-                text_html = f" <span style='color: {COLOR_TEXT_MAIN};'>{text_escaped}</span><br>"
+                p = get_palette()
+                ts_html = f"<span style='color: {p.primary}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
+                text_html = f" <span style='color: {p.text_main};'>{text_escaped}</span><br>"
 
                 cursor.insertHtml(f"{ts_html}{text_html}")
                 self.txt_display.setTextCursor(cursor)
@@ -507,8 +500,9 @@ class TranscriptView(QFrame):
                 for seg in self._raw_segments:
                     ts_escaped = html.escape(seg.formatted_timerange)
                     text_escaped = html.escape(seg.text)
-                    ts_html = f"<span style='color: {COLOR_PRIMARY}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
-                    text_html = f" <span style='color: {COLOR_TEXT_MAIN};'>{text_escaped}</span><br>"
+                    p = get_palette()
+                    ts_html = f"<span style='color: {p.primary}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
+                    text_html = f" <span style='color: {p.text_main};'>{text_escaped}</span><br>"
                     cursor.insertHtml(f"{ts_html}{text_html}")
                 self.txt_display.setTextCursor(cursor)
             elif self._current_result and self._current_result.full_text:

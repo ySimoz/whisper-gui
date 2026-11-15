@@ -27,20 +27,7 @@ except ImportError:
 
 from whisper_gui.audio_utils import format_seconds
 from whisper_gui.models import AudioTrack, SliceConfig, SliceMode
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BG_SURFACE,
-    COLOR_BORDER,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_TEXT,
-    COLOR_SECONDARY,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    fixed_mono_font,
-    load_ui_icon,
-)
+from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
 
 
 class RangeSelectorWidget(QWidget):
@@ -63,12 +50,13 @@ class RangeSelectorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Two-row control card: Mode + duration on row 1, Start/End timecodes on row 2
+        p = get_palette()
         top_bar = QFrame()
         top_bar.setObjectName("range_top_bar")
         top_bar.setStyleSheet(f"""
             #range_top_bar {{
-                background-color: {COLOR_BG_INPUT};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {p.bg_input};
+                border: 1px solid {p.border};
                 border-radius: 8px;
             }}
             QLabel {{
@@ -97,7 +85,7 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_selected_length = QLabel("Selected: 00:00:00")
         self.lbl_selected_length.setFont(fixed_mono_font(12))
-        self.lbl_selected_length.setStyleSheet(f"color: {COLOR_TEXT_MAIN};")
+        self.lbl_selected_length.setStyleSheet(f"color: {p.text_main};")
         mode_row.addWidget(self.lbl_selected_length)
         top_vbox.addLayout(mode_row)
 
@@ -105,7 +93,7 @@ class RangeSelectorWidget(QWidget):
         time_row.setSpacing(12)
 
         lbl_start = QLabel("Start")
-        lbl_start.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        lbl_start.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         time_row.addWidget(lbl_start)
 
         self.time_start = QTimeEdit()
@@ -118,7 +106,7 @@ class RangeSelectorWidget(QWidget):
         time_row.addSpacing(4)
 
         lbl_end = QLabel("End")
-        lbl_end.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        lbl_end.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         time_row.addWidget(lbl_end)
 
         self.time_end = QTimeEdit()
@@ -144,7 +132,7 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_slider_info = QLabel("Range: 00:00:00 / Total: 00:00:00")
         self.lbl_slider_info.setFont(fixed_mono_font(11))
-        self.lbl_slider_info.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
+        self.lbl_slider_info.setStyleSheet(f"color: {p.text_muted};")
         slider_layout.addWidget(self.lbl_slider_info)
 
         layout.addLayout(slider_layout)
@@ -316,8 +304,9 @@ class TrimAudioDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
 
+        p = get_palette()
         title = QLabel(f"Trim {track.info.filename}")
-        title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {COLOR_TEXT_MAIN};")
+        title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {p.text_main};")
         layout.addWidget(title)
 
         self.selector = RangeSelectorWidget(self)
@@ -329,8 +318,8 @@ class TrimAudioDialog(QDialog):
         preview_bar.setObjectName("trim_preview_bar")
         preview_bar.setStyleSheet(f"""
             #trim_preview_bar {{
-                background-color: {COLOR_BG_INPUT};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {p.bg_input};
+                border: 1px solid {p.border};
                 border-radius: 8px;
             }}
             QLabel {{
@@ -358,7 +347,7 @@ class TrimAudioDialog(QDialog):
 
         self.lbl_playback_pos = QLabel("00:00:00 / 00:00:00")
         self.lbl_playback_pos.setFont(fixed_mono_font(11))
-        self.lbl_playback_pos.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
+        self.lbl_playback_pos.setStyleSheet(f"color: {p.text_muted};")
         preview_layout.addWidget(self.lbl_playback_pos)
 
         layout.addWidget(preview_bar)

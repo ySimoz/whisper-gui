@@ -19,21 +19,7 @@ from PySide6.QtWidgets import (
 
 from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.settings_panel import SettingsPanel
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BG_RAISED,
-    COLOR_BG_SURFACE,
-    COLOR_BG_WINDOW,
-    COLOR_BORDER,
-    COLOR_BORDER_LIGHT,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_TEXT,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    load_ui_icon,
-)
+from whisper_gui.ui.theme import get_palette, load_ui_icon
 
 
 class ScrollBubbleFilter(QObject):
@@ -76,38 +62,25 @@ class SettingsPageWidget(QWidget):
         layout.setSpacing(12)
 
         # Top Navigation Bar
-        nav_bar = QFrame()
-        nav_bar.setObjectName("settings_nav_bar")
-        nav_bar.setFixedHeight(48)
-        nav_bar.setStyleSheet(f"""
-            #settings_nav_bar {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-        nav_layout = QHBoxLayout(nav_bar)
+        self.nav_bar = QFrame()
+        self.nav_bar.setObjectName("settings_nav_bar")
+        self.nav_bar.setFixedHeight(48)
+        nav_layout = QHBoxLayout(self.nav_bar)
         nav_layout.setContentsMargins(12, 0, 12, 0)
         nav_layout.setSpacing(12)
         nav_layout.setAlignment(Qt.AlignVCenter)
 
         self.btn_back = QPushButton("Back to Transcribe")
-        self.btn_back.setIcon(load_ui_icon("arrow-left"))
         self.btn_back.setIconSize(QSize(16, 16))
         self.btn_back.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
         self.btn_back.clicked.connect(self.back_requested.emit)
         nav_layout.addWidget(self.btn_back)
 
-        page_title = QLabel("Settings")
-        page_title.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
-        nav_layout.addWidget(page_title)
+        self.page_title = QLabel("Settings")
+        nav_layout.addWidget(self.page_title)
 
         nav_layout.addStretch()
-        layout.addWidget(nav_bar)
+        layout.addWidget(self.nav_bar)
 
         # Sequential Scrollable Container
         scroll = QScrollArea()
@@ -132,40 +105,20 @@ class SettingsPageWidget(QWidget):
         content_layout.setSpacing(20)
 
         # Section 1: Speech Recognition & Storage/Memory
-        sec1_frame = QFrame()
-        sec1_frame.setObjectName("sec1_card")
-        sec1_frame.setStyleSheet(f"""
-            #sec1_card {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            #sec1_card QCheckBox, #sec1_card QLabel, #sec1_card #settings_panel {{
-                background-color: transparent;
-            }}
-        """)
-        sec1_layout = QVBoxLayout(sec1_frame)
+        self.sec1_frame = QFrame()
+        self.sec1_frame.setObjectName("sec1_card")
+        sec1_layout = QVBoxLayout(self.sec1_frame)
         sec1_layout.setContentsMargins(24, 20, 24, 20)
         sec1_layout.addWidget(self.settings_panel)
-        content_layout.addWidget(sec1_frame)
+        content_layout.addWidget(self.sec1_frame)
 
         # Section 2: Transcript Polishing
-        sec2_frame = QFrame()
-        sec2_frame.setObjectName("sec2_card")
-        sec2_frame.setStyleSheet(f"""
-            #sec2_card {{
-                background-color: {COLOR_BG_SURFACE};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 12px;
-            }}
-            #sec2_card QCheckBox, #sec2_card QLabel, #sec2_card #llm_panel, #sec2_card #llm_controls_container {{
-                background-color: transparent;
-            }}
-        """)
-        sec2_layout = QVBoxLayout(sec2_frame)
+        self.sec2_frame = QFrame()
+        self.sec2_frame.setObjectName("sec2_card")
+        sec2_layout = QVBoxLayout(self.sec2_frame)
         sec2_layout.setContentsMargins(24, 20, 24, 20)
         sec2_layout.addWidget(self.llm_panel)
-        content_layout.addWidget(sec2_frame)
+        content_layout.addWidget(self.sec2_frame)
 
         content_layout.addStretch()
         center_host_layout.addWidget(content)
@@ -177,3 +130,42 @@ class SettingsPageWidget(QWidget):
         for panel in (self.settings_panel, self.llm_panel):
             for child in panel.findChildren(QComboBox) + panel.findChildren(QSpinBox):
                 child.installEventFilter(self.wheel_filter)
+
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        """Apply the active palette to the settings page container and cards."""
+        p = get_palette()
+        self.nav_bar.setStyleSheet(f"""
+            #settings_nav_bar {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.btn_back.setIcon(load_ui_icon("arrow-left"))
+        self.page_title.setStyleSheet(f"color: {p.text_main}; font-size: 14px; font-weight: 500;")
+        self.sec1_frame.setStyleSheet(f"""
+            #sec1_card {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            #sec1_card QCheckBox, #sec1_card QLabel, #sec1_card #settings_panel {{
+                background-color: transparent;
+            }}
+        """)
+        self.sec2_frame.setStyleSheet(f"""
+            #sec2_card {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 12px;
+            }}
+            #sec2_card QCheckBox, #sec2_card QLabel, #sec2_card #llm_panel, #sec2_card #llm_controls_container {{
+                background-color: transparent;
+            }}
+        """)

@@ -34,25 +34,7 @@ from whisper_gui.llm_cleaner import (
     test_llm_connection,
 )
 from whisper_gui.models import LLMConfig
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BORDER,
-    COLOR_NEGATIVE,
-    COLOR_POSITIVE,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_TEXT,
-    COLOR_SECONDARY,
-    COLOR_SECONDARY_HOVER,
-    COLOR_SECONDARY_TEXT,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    COLOR_TEXT_SECONDARY,
-)
-
-_SECTION_LABEL_STYLE = f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 500; padding: 0;"
-_FIELD_LABEL_STYLE = f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; font-weight: 500; padding: 0;"
+from whisper_gui.ui.theme import get_palette
 
 
 class InstructionEditorDialog(QDialog):
@@ -96,10 +78,19 @@ class LLMPanel(QWidget):
         self.setStyleSheet("#llm_panel { background-color: transparent; }")
         self._custom_instruction_path: Path | None = None
         self._custom_instruction_text: str | None = None
+        self._conn_state: str | None = None  # "ok", "err", or None
+        self._section_labels: list[QLabel] = []
+        self._field_labels: list[QLabel] = []
 
         self._build_ui()
+        self.apply_theme()
         self._on_provider_changed("DeepSeek")
         self._update_enabled_states()
+
+    def _make_field_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        self._field_labels.append(lbl)
+        return lbl
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -107,11 +98,10 @@ class LLMPanel(QWidget):
         main_layout.setSpacing(12)
 
         sec_hdr = QLabel("Transcript Polishing")
-        sec_hdr.setStyleSheet(_SECTION_LABEL_STYLE)
+        self._section_labels.append(sec_hdr)
         main_layout.addWidget(sec_hdr)
 
         self.chk_enable = QCheckBox("Enable transcript polishing")
-        self.chk_enable.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-weight: 500; font-size: 13px; background-color: transparent;")
         self.chk_enable.toggled.connect(self._on_toggle_enabled)
         main_layout.addWidget(self.chk_enable)
 
@@ -124,9 +114,7 @@ class LLMPanel(QWidget):
         ctrl_layout.setSpacing(12)
 
         # Provider
-        lbl_prov = QLabel("Provider")
-        lbl_prov.setStyleSheet(_FIELD_LABEL_STYLE)
-        ctrl_layout.addWidget(lbl_prov)
+        ctrl_layout.addWidget(self._make_field_label("Provider"))
 
         self.combo_provider = QComboBox()
         self.combo_provider.setView(QListView())
@@ -136,9 +124,7 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.combo_provider)
 
         # Model Name
-        lbl_mod = QLabel("Model Name")
-        lbl_mod.setStyleSheet(_FIELD_LABEL_STYLE)
-        ctrl_layout.addWidget(lbl_mod)
+        ctrl_layout.addWidget(self._make_field_label("Model Name"))
 
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
@@ -148,9 +134,7 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.combo_model)
 
         # Base URL
-        lbl_url = QLabel("API Base URL")
-        lbl_url.setStyleSheet(_FIELD_LABEL_STYLE)
-        ctrl_layout.addWidget(lbl_url)
+        ctrl_layout.addWidget(self._make_field_label("API Base URL"))
 
         self.txt_base_url = QLineEdit()
         self.txt_base_url.setFixedHeight(36)
@@ -159,9 +143,7 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.txt_base_url)
 
         # API Key
-        lbl_key = QLabel("API Key")
-        lbl_key.setStyleSheet(_FIELD_LABEL_STYLE)
-        ctrl_layout.addWidget(lbl_key)
+        ctrl_layout.addWidget(self._make_field_label("API Key"))
 
         key_box = QHBoxLayout()
         key_box.setSpacing(8)
@@ -190,12 +172,9 @@ class LLMPanel(QWidget):
         ctrl_layout.addWidget(self.lbl_conn_status)
 
         # Prompt Instructions
-        lbl_prompt = QLabel("Custom Instructions Prompt")
-        lbl_prompt.setStyleSheet(_FIELD_LABEL_STYLE)
-        ctrl_layout.addWidget(lbl_prompt)
+        ctrl_layout.addWidget(self._make_field_label("Custom Instructions Prompt"))
 
         self.lbl_active_prompt = QLabel("Active: Default (Speech Polisher)")
-        self.lbl_active_prompt.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         ctrl_layout.addWidget(self.lbl_active_prompt)
 
         prompt_btn_row = QHBoxLayout()
@@ -221,12 +200,35 @@ class LLMPanel(QWidget):
 
         self.chk_raw_appendix = QCheckBox("Include raw transcript in Word document")
         self.chk_raw_appendix.setChecked(True)
-        self.chk_raw_appendix.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px; background-color: transparent;")
         self.chk_raw_appendix.toggled.connect(self._on_setting_changed)
         ctrl_layout.addWidget(self.chk_raw_appendix)
 
         main_layout.addWidget(self.controls_container)
         main_layout.addStretch()
+
+    def apply_theme(self) -> None:
+        """Apply the active theme palette to LLM panel labels and status text."""
+        p = get_palette()
+        sec_style = f"color: {p.text_main}; font-size: 16px; font-weight: 500; padding: 0;"
+        field_style = f"color: {p.text_secondary}; font-size: 13px; font-weight: 500; padding: 0;"
+        for lbl in self._section_labels:
+            lbl.setStyleSheet(sec_style)
+        for lbl in self._field_labels:
+            lbl.setStyleSheet(field_style)
+        self.chk_enable.setStyleSheet(
+            f"color: {p.text_main}; font-weight: 500; font-size: 13px; background-color: transparent;"
+        )
+        self.lbl_active_prompt.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        self.chk_raw_appendix.setStyleSheet(
+            f"color: {p.text_muted}; font-size: 12px; background-color: transparent;"
+        )
+        if self._conn_state == "ok":
+            self.lbl_conn_status.setStyleSheet(f"color: {p.positive}; font-weight: 500; font-size: 12px;")
+        elif self._conn_state == "err":
+            self.lbl_conn_status.setStyleSheet(f"color: {p.negative}; font-weight: 500; font-size: 12px;")
+        else:
+            self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        self._update_enabled_states()
 
     def _on_toggle_enabled(self, checked: bool) -> None:
         self._update_enabled_states()
@@ -236,16 +238,17 @@ class LLMPanel(QWidget):
         # Crucial UX fix: All configuration inputs remain active so the user can
         # paste their API key, select models, and test connections at any time.
         enabled = self.chk_enable.isChecked()
+        p = get_palette()
         if hasattr(self, "lbl_workflow_status"):
             if enabled:
                 self.lbl_workflow_status.setText("Enabled for transcriptions")
                 self.lbl_workflow_status.setStyleSheet(
-                    f"color: {COLOR_SECONDARY}; font-weight: bold; font-size: 11px;"
+                    f"color: {p.secondary}; font-weight: bold; font-size: 11px;"
                 )
             else:
                 self.lbl_workflow_status.setText("Disabled (configure & test anytime)")
                 self.lbl_workflow_status.setStyleSheet(
-                    f"color: {COLOR_TEXT_MUTED}; font-size: 11px;"
+                    f"color: {p.text_muted}; font-size: 11px;"
                 )
 
     def _on_provider_changed(self, provider: str) -> None:
@@ -282,20 +285,24 @@ class LLMPanel(QWidget):
 
     def _test_connection(self) -> None:
         cfg = self.get_config()
-        self.lbl_conn_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 11px;")
+        p = get_palette()
+        self._conn_state = None
+        self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 11px;")
         self.lbl_conn_status.setText("Connecting to LLM API...")
         self.btn_test_conn.setEnabled(False)
 
         try:
             ok, msg = test_llm_connection(cfg, timeout=12.0)
             if ok:
+                self._conn_state = "ok"
                 self.lbl_conn_status.setStyleSheet(
-                    f"color: {COLOR_POSITIVE}; font-weight: 500; font-size: 12px;"
+                    f"color: {p.positive}; font-weight: 500; font-size: 12px;"
                 )
                 self.lbl_conn_status.setText(msg)
             else:
+                self._conn_state = "err"
                 self.lbl_conn_status.setStyleSheet(
-                    f"color: {COLOR_NEGATIVE}; font-weight: 500; font-size: 12px;"
+                    f"color: {p.negative}; font-weight: 500; font-size: 12px;"
                 )
                 self.lbl_conn_status.setText(msg)
         finally:

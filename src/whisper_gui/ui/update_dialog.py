@@ -22,20 +22,7 @@ from PySide6.QtWidgets import (
 
 from whisper_gui import __version__
 from whisper_gui.platform_utils import is_bundled, reveal_file_in_os
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BG_SURFACE,
-    COLOR_BG_WINDOW,
-    COLOR_BORDER,
-    COLOR_PRIMARY,
-    COLOR_PRIMARY_HOVER,
-    COLOR_PRIMARY_PRESSED,
-    COLOR_PRIMARY_TEXT,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    fixed_mono_font,
-)
+from whisper_gui.ui.theme import build_stylesheet, fixed_mono_font, get_palette
 from whisper_gui.updater import (
     ReleaseInfo,
     apply_update_and_relaunch,
@@ -132,22 +119,27 @@ class UpdateDialog(QDialog):
         self.setWindowTitle("Update Available")
         self.setMinimumSize(500, 380)
         self.resize(540, 420)
-        self.setStyleSheet(f"""
+        p = get_palette()
+        self.setStyleSheet(
+            build_stylesheet(p)
+            + f"""
             QDialog {{
-                background-color: {COLOR_BG_WINDOW};
-                color: {COLOR_TEXT_MAIN};
+                background-color: {p.bg_window};
+                color: {p.text_main};
             }}
-        """)
+        """
+        )
         self._build_ui()
 
     def _build_ui(self) -> None:
+        p = get_palette()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
 
         header_row = QHBoxLayout()
         title = QLabel("New Version Available")
-        title.setStyleSheet(f"color: {COLOR_TEXT_MAIN}; font-size: 14px; font-weight: 500;")
+        title.setStyleSheet(f"color: {p.text_main}; font-size: 14px; font-weight: 500;")
         header_row.addWidget(title)
         header_row.addStretch()
 
@@ -155,9 +147,9 @@ class UpdateDialog(QDialog):
         version_badge.setFont(fixed_mono_font(12))
         version_badge.setStyleSheet(f"""
             QLabel {{
-                background-color: {COLOR_BG_SURFACE};
-                color: {COLOR_TEXT_MAIN};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {p.bg_surface};
+                color: {p.text_main};
+                border: 1px solid {p.border};
                 border-radius: 6px;
                 padding: 4px 12px;
                 font-weight: 500;
@@ -167,16 +159,16 @@ class UpdateDialog(QDialog):
         layout.addLayout(header_row)
 
         changelog_label = QLabel("Changelog")
-        changelog_label.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-weight: 500; font-size: 12px;")
+        changelog_label.setStyleSheet(f"color: {p.text_muted}; font-weight: 500; font-size: 12px;")
         layout.addWidget(changelog_label)
 
         self.txt_changelog = QTextBrowser(self)
         self.txt_changelog.setOpenExternalLinks(True)
         self.txt_changelog.setStyleSheet(f"""
             QTextBrowser {{
-                background-color: {COLOR_BG_INPUT};
-                color: {COLOR_TEXT_MAIN};
-                border: 1px solid {COLOR_BORDER};
+                background-color: {p.bg_input};
+                color: {p.text_main};
+                border: 1px solid {p.border};
                 border-radius: 8px;
                 padding: 12px;
                 font-size: 12px;
@@ -186,7 +178,7 @@ class UpdateDialog(QDialog):
         layout.addWidget(self.txt_changelog, stretch=1)
 
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self.lbl_status.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         self.lbl_status.hide()
         layout.addWidget(self.lbl_status)
 
@@ -210,24 +202,24 @@ class UpdateDialog(QDialog):
         self.btn_update.setDefault(True)
         self.btn_update.setStyleSheet(f"""
             QPushButton {{
-                background-color: {COLOR_PRIMARY};
-                color: {COLOR_PRIMARY_TEXT};
-                border: 1px solid {COLOR_PRIMARY};
+                background-color: {p.primary};
+                color: {p.primary_text};
+                border: 1px solid {p.primary};
                 border-radius: 8px;
                 padding: 8px 16px;
                 font-weight: 500;
             }}
             QPushButton:hover {{
-                background-color: {COLOR_PRIMARY_HOVER};
-                border-color: {COLOR_PRIMARY_HOVER};
+                background-color: {p.primary_hover};
+                border-color: {p.primary_hover};
             }}
             QPushButton:pressed {{
-                background-color: {COLOR_PRIMARY_PRESSED};
+                background-color: {p.primary_pressed};
             }}
             QPushButton:disabled {{
-                background-color: {COLOR_BG_SURFACE};
-                color: {COLOR_TEXT_HINT};
-                border-color: {COLOR_BORDER};
+                background-color: {p.bg_surface};
+                color: {p.text_hint};
+                border-color: {p.border};
             }}
         """)
         self.btn_update.clicked.connect(self._on_update_clicked)

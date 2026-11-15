@@ -6,8 +6,9 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Signal
+from PySide6.QtCore import QSettings, QSize, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -32,20 +33,7 @@ from whisper_gui.transcriber import (
     get_model_cache_size_mb,
     is_model_downloaded_on_disk,
 )
-from whisper_gui.ui.theme import (
-    COLOR_BG_INPUT,
-    COLOR_BORDER,
-    COLOR_PRIMARY,
-    COLOR_SECONDARY,
-    COLOR_SECONDARY_TEXT,
-    COLOR_TEXT_HINT,
-    COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED,
-    COLOR_TEXT_SECONDARY,
-)
-
-_SECTION_LABEL_STYLE = f"color: {COLOR_TEXT_MAIN}; font-size: 16px; font-weight: 500; padding: 0;"
-_FIELD_LABEL_STYLE = f"color: {COLOR_TEXT_SECONDARY}; font-size: 13px; font-weight: 500; padding: 0;"
+from whisper_gui.ui.theme import get_palette, get_theme_name, swatch_icon
 
 SUPPORTED_LANGUAGES = [
     ("Auto-detect", None),
@@ -102,28 +90,74 @@ class SettingsPanel(QWidget):
     settings_changed = Signal()
     free_ram_requested = Signal()
     check_updates_requested = Signal()
+    theme_changed = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("settings_panel")
         self.setStyleSheet("#settings_panel { background-color: transparent; }")
         self._custom_output_dir: Path | None = None
+        self._ram_loaded = False
+        self._section_labels: list[QLabel] = []
+        self._field_labels: list[QLabel] = []
+        self._muted_labels: list[QLabel] = []
+        self._muted_checks: list[QCheckBox] = []
         self._build_ui()
+        self.apply_theme()
         self._update_disk_status()
+
+    def _make_section_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        self._section_labels.append(lbl)
+        return lbl
+
+    def _make_field_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        self._field_labels.append(lbl)
+        return lbl
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Section 1: Speech Recognition
-        sec_rec = QLabel("Speech Recognition")
-        sec_rec.setStyleSheet(_SECTION_LABEL_STYLE)
-        layout.addWidget(sec_rec)
+        # Appearance
+        layout.addWidget(self._make_section_label("Appearance"))
+        layout.addWidget(self._make_field_label("Color Theme"))
 
-        lbl_model = QLabel("Whisper Model")
-        lbl_model.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_model)
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(8)
+        self.theme_btn_group = QButtonGroup(self)
+        self.theme_btn_group.setExclusive(True)
+
+        self.btn_theme_graphite = QPushButton("Graphite")
+        self.btn_theme_graphite.setCheckable(True)
+        self.btn_theme_graphite.setIcon(swatch_icon("#141415", "#232325", "#3C3C40"))
+        self.btn_theme_graphite.setIconSize(QSize(14, 14))
+        self.btn_theme_graphite.setFixedHeight(36)
+        self.btn_theme_graphite.clicked.connect(
+            lambda: self._on_theme_button_clicked("graphite", self.btn_theme_graphite)
+        )
+        self.theme_btn_group.addButton(self.btn_theme_graphite)
+        theme_row.addWidget(self.btn_theme_graphite, stretch=1)
+
+        self.btn_theme_blush = QPushButton("Blush Pink")
+        self.btn_theme_blush.setCheckable(True)
+        self.btn_theme_blush.setIcon(swatch_icon("#F8C8DC", "#F3CFC6", "#C99AAE"))
+        self.btn_theme_blush.setIconSize(QSize(14, 14))
+        self.btn_theme_blush.setFixedHeight(36)
+        self.btn_theme_blush.clicked.connect(
+            lambda: self._on_theme_button_clicked("blush", self.btn_theme_blush)
+        )
+        self.theme_btn_group.addButton(self.btn_theme_blush)
+        theme_row.addWidget(self.btn_theme_blush, stretch=1)
+
+        layout.addLayout(theme_row)
+        layout.addSpacing(12)
+
+        # Section 1: Speech Recognition
+        layout.addWidget(self._make_section_label("Speech Recognition"))
+        layout.addWidget(self._make_field_label("Whisper Model"))
 
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
@@ -136,7 +170,7 @@ class SettingsPanel(QWidget):
         disk_row = QHBoxLayout()
         disk_row.setSpacing(12)
         self.lbl_disk_status = QLabel("Downloaded locally")
-        self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
+        self._muted_labels.append(self.lbl_disk_status)
         disk_row.addWidget(self.lbl_disk_status, stretch=1)
 
         self.btn_delete_model = QPushButton("Delete Cached Model")
@@ -146,10 +180,7 @@ class SettingsPanel(QWidget):
         layout.addLayout(disk_row)
 
         layout.addSpacing(4)
-
-        lbl_lang = QLabel("Language")
-        lbl_lang.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_lang)
+        layout.addWidget(self._make_field_label("Language"))
 
         self.combo_lang = QComboBox()
         self.combo_lang.setView(QListView())
@@ -160,10 +191,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(self.combo_lang)
 
         layout.addSpacing(4)
-
-        lbl_dev = QLabel("Inference Device & Compute Type")
-        lbl_dev.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_dev)
+        layout.addWidget(self._make_field_label("Inference Device & Compute Type"))
 
         dev_row = QHBoxLayout()
         dev_row.setSpacing(12)
@@ -189,10 +217,7 @@ class SettingsPanel(QWidget):
         layout.addLayout(dev_row)
 
         layout.addSpacing(4)
-
-        lbl_threads = QLabel("CPU Threads")
-        lbl_threads.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_threads)
+        layout.addWidget(self._make_field_label("CPU Threads"))
 
         max_cpu = os.cpu_count() or 6
         default_threads = min(6, max_cpu)
@@ -221,13 +246,8 @@ class SettingsPanel(QWidget):
         layout.addSpacing(16)
 
         # Section 2: Storage & Output
-        sec_out = QLabel("Storage & Output")
-        sec_out.setStyleSheet(_SECTION_LABEL_STYLE)
-        layout.addWidget(sec_out)
-
-        lbl_out = QLabel("Output Folder")
-        lbl_out.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_out)
+        layout.addWidget(self._make_section_label("Storage & Output"))
+        layout.addWidget(self._make_field_label("Output Folder"))
 
         out_row = QHBoxLayout()
         out_row.setSpacing(8)
@@ -247,10 +267,7 @@ class SettingsPanel(QWidget):
         layout.addLayout(out_row)
 
         layout.addSpacing(4)
-
-        lbl_fmt = QLabel("Default Export Format")
-        lbl_fmt.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_fmt)
+        layout.addWidget(self._make_field_label("Default Export Format"))
 
         self.combo_export_format = QComboBox()
         self.combo_export_format.setView(QListView())
@@ -266,24 +283,18 @@ class SettingsPanel(QWidget):
 
         self.chk_auto_export = QCheckBox("Auto-export file when transcription finishes")
         self.chk_auto_export.setChecked(True)
-        self.chk_auto_export.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED}; background-color: transparent;")
+        self._muted_checks.append(self.chk_auto_export)
         layout.addWidget(self.chk_auto_export)
 
         layout.addSpacing(16)
 
         # Section 3: Memory & Performance
-        sec_mem = QLabel("System & Memory")
-        sec_mem.setStyleSheet(_SECTION_LABEL_STYLE)
-        layout.addWidget(sec_mem)
-
-        lbl_ram = QLabel("Model Memory Usage")
-        lbl_ram.setStyleSheet(_FIELD_LABEL_STYLE)
-        layout.addWidget(lbl_ram)
+        layout.addWidget(self._make_section_label("System & Memory"))
+        layout.addWidget(self._make_field_label("Model Memory Usage"))
 
         ram_row = QHBoxLayout()
         ram_row.setSpacing(12)
         self.lbl_ram_status = QLabel("Model in RAM: None (0 MB)")
-        self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
         ram_row.addWidget(self.lbl_ram_status, stretch=1)
 
         self.btn_free_ram = QPushButton("Unload Model")
@@ -293,13 +304,13 @@ class SettingsPanel(QWidget):
         layout.addLayout(ram_row)
 
         self.chk_auto_unload = QCheckBox("Auto-unload model after transcription finishes")
-        self.chk_auto_unload.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED}; background-color: transparent;")
+        self._muted_checks.append(self.chk_auto_unload)
         layout.addWidget(self.chk_auto_unload)
 
         update_row = QHBoxLayout()
         update_row.setSpacing(12)
         self.lbl_version = QLabel(f"Version {__version__}")
-        self.lbl_version.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+        self._muted_labels.append(self.lbl_version)
         update_row.addWidget(self.lbl_version, stretch=1)
 
         self.btn_check_updates = QPushButton("Check for Updates")
@@ -339,11 +350,9 @@ class SettingsPanel(QWidget):
             size_mb = get_model_cache_size_mb(model_name)
             size_str = f"{size_mb:.0f} MB on disk" if size_mb >= 1 else f"{size_mb:.1f} MB on disk"
             self.lbl_disk_status.setText(f"Downloaded on disk ({size_str}, ~{est_mb}MB RAM)")
-            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
             self.btn_delete_model.setEnabled(True)
         else:
             self.lbl_disk_status.setText(f"Not cached locally (~{est_mb}MB download)")
-            self.lbl_disk_status.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
             self.btn_delete_model.setEnabled(False)
 
     def _on_delete_model_clicked(self) -> None:
@@ -363,15 +372,71 @@ class SettingsPanel(QWidget):
 
     def set_ram_status(self, is_loaded: bool, model_name: str | None = None) -> None:
         """Update the RAM display badge and enable/disable the Free RAM button."""
-        if is_loaded and model_name:
+        p = get_palette()
+        self._ram_loaded = bool(is_loaded and model_name)
+        if self._ram_loaded:
             est_mb = estimate_model_ram_mb(model_name)
             self.lbl_ram_status.setText(f"Model in Memory: {model_name} (~{est_mb} MB)")
-            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MAIN}; font-weight: 500;")
+            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {p.text_main}; font-weight: 500;")
             self.btn_free_ram.setEnabled(True)
         else:
             self.lbl_ram_status.setText("Model in Memory: None (0 MB)")
-            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {COLOR_TEXT_MUTED};")
+            self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {p.text_muted};")
             self.btn_free_ram.setEnabled(False)
+
+    def _on_theme_button_clicked(self, theme_name: str, button: QPushButton) -> None:
+        self.theme_changed.emit(theme_name, button)
+
+    def set_selected_theme(self, theme_name: str) -> None:
+        """Reflect active theme on selector buttons without emitting theme_changed."""
+        self.btn_theme_graphite.setChecked(theme_name != "blush")
+        self.btn_theme_blush.setChecked(theme_name == "blush")
+
+    def apply_theme(self) -> None:
+        """Apply the active palette across section labels, captions, and theme buttons."""
+        p = get_palette()
+        sec_style = f"color: {p.text_main}; font-size: 16px; font-weight: 500; padding: 0;"
+        field_style = f"color: {p.text_secondary}; font-size: 13px; font-weight: 500; padding: 0;"
+        muted_style = f"color: {p.text_muted}; font-size: 12px;"
+        chk_muted_style = f"font-size: 12px; color: {p.text_muted}; background-color: transparent;"
+
+        for lbl in self._section_labels:
+            lbl.setStyleSheet(sec_style)
+        for lbl in self._field_labels:
+            lbl.setStyleSheet(field_style)
+        for lbl in self._muted_labels:
+            lbl.setStyleSheet(muted_style)
+        for chk in self._muted_checks:
+            chk.setStyleSheet(chk_muted_style)
+
+        ram_color = p.text_main if self._ram_loaded else p.text_muted
+        ram_weight = " font-weight: 500;" if self._ram_loaded else ""
+        self.lbl_ram_status.setStyleSheet(f"font-size: 12px; color: {ram_color};{ram_weight}")
+
+        btn_style = f"""
+            QPushButton {{
+                background-color: {p.bg_input};
+                color: {p.text_secondary};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-weight: 500;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+                border: 1px solid {p.border_light};
+            }}
+            QPushButton:checked {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+                border: 1.5px solid {p.primary};
+            }}
+        """
+        self.btn_theme_graphite.setStyleSheet(btn_style)
+        self.btn_theme_blush.setStyleSheet(btn_style)
+        self.set_selected_theme(get_theme_name())
 
     def _on_device_changed(self) -> None:
         device = self.combo_device.currentData()
@@ -427,6 +492,7 @@ class SettingsPanel(QWidget):
         settings.setValue("auto_export", self.chk_auto_export.isChecked())
         settings.setValue("auto_unload", self.chk_auto_unload.isChecked())
         settings.setValue("output_dir", str(self._custom_output_dir) if self._custom_output_dir else "")
+        settings.setValue("theme", get_theme_name())
         settings.endGroup()
 
     def load_settings(self, settings: QSettings) -> None:
@@ -443,7 +509,9 @@ class SettingsPanel(QWidget):
         auto_exp = settings.value("auto_export", True, type=bool)
         auto_unload = settings.value("auto_unload", False, type=bool)
         out_dir = settings.value("output_dir", "", type=str)
+        theme_name = settings.value("theme", "graphite", type=str)
         settings.endGroup()
+        self.set_selected_theme(theme_name)
 
         idx_model = self.combo_model.findData(model_name)
         if idx_model >= 0:
