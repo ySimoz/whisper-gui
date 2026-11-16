@@ -294,8 +294,9 @@ class MainWindow(QMainWindow):
         header_layout.addStretch()
 
         self.btn_open_history = QPushButton(tr("main.history_button"))
+        self.btn_open_history.setFixedHeight(32)
         self.btn_open_history.setIconSize(QSize(16, 16))
-        self.btn_open_history.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
+        self.btn_open_history.setStyleSheet("padding: 4px 12px; font-size: 12px; font-weight: 500;")
         self.btn_open_history.clicked.connect(self._open_history_page)
         header_layout.addWidget(self.btn_open_history)
 
@@ -473,7 +474,7 @@ class MainWindow(QMainWindow):
         self.page_stack.addWidget(self.page_transcribe)
 
         # ---------------- Page 1: Dedicated Settings Page ----------------
-        self.range_selector = RangeSelectorWidget()
+        self.range_selector = RangeSelectorWidget(enable_waveform=False)
         self.settings_panel = SettingsPanel()
         self.llm_panel = LLMPanel()
         self.settings_page = SettingsPageWidget(self.settings_panel, self.llm_panel, self)
@@ -997,10 +998,13 @@ class MainWindow(QMainWindow):
     def _open_trim_dialog(self) -> None:
         if not self._active_track:
             return
+        self.transcript_view.pause_playback()
         dialog = TrimAudioDialog(self._active_track, parent=self)
         if dialog.exec():
             self._update_slice_badge(self._active_track)
             self.track_list.refresh_track_display(self._active_track.id)
+            self.range_selector.set_track(self._active_track)
+            self.transcript_view.refresh_playback_bounds()
 
     def _check_dependencies(self) -> None:
         if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI"):
@@ -1411,6 +1415,8 @@ class MainWindow(QMainWindow):
         self._theme_overlay = None
         if overlay is not None:
             overlay.cancel()
+        self.transcript_view.release_player()
+        self.range_selector.cancel_waveform_load()
         self._save_settings()
         if self._update_check_worker and self._update_check_worker.isRunning():
             self._update_check_worker.requestInterruption()

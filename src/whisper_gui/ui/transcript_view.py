@@ -6,8 +6,20 @@ from dataclasses import replace
 import html
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QFont, QGuiApplication, QKeySequence, QShortcut, QTextCursor, QTextDocument
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QGuiApplication,
+    QKeySequence,
+    QShortcut,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+    QTextFormat,
+)
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -19,16 +31,26 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+try:
+    from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+except ImportError:
+    QAudioOutput = None  # type: ignore[assignment]
+    QMediaPlayer = None  # type: ignore[assignment]
+
+from whisper_gui.audio_utils import format_seconds
 from whisper_gui.exporters import export_transcript
 from whisper_gui.i18n import display_track_status, tr
 from whisper_gui.llm_cleaner import PROMPT_PRESET_IDS, get_llm_error_hint, get_preset_label
 from whisper_gui.models import (
     AudioTrack,
+    SliceMode,
+    TrackStatus,
     TranscriptionConfig,
     TranscriptionResult,
     TranscriptSegment,
@@ -38,12 +60,16 @@ from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
 
 
 class TranscriptView(QFrame):
-    """Displays real-time streaming transcription segments, progress bar, and export actions."""
+    """Displays real-time streaming transcription segments, progress bar, synced audio playback, and export actions."""
 
     polish_requested = Signal()
     preset_selected = Signal(str)
     llm_settings_requested = Signal()
     track_exported = Signal(object)
+    playback_position_changed = Signal(float)  # relative seconds within transcript
+    segment_activated = Signal(int)            # active segment index
+
+    _PLAYBACK_RATES: tuple[float, ...] = (0.75, 1.0, 1.25, 1.5, 2.0)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -62,6 +88,20 @@ class TranscriptView(QFrame):
         self._raw_edited: bool = False
         self._raw_edited_text: str | None = None
         self._raw_segments_stale: bool = False
+
+        # Audio playback state
+        self._player = None
+        self._audio_output = None
+        self._loaded_audio_path: Path | None = None
+        self._slice_start_ms: int = 0
+        self._slice_end_ms: int = 0
+        self._playback_duration_ms: int = 0
+        self._slider_dragging: bool = False
+        self._updating_slider: bool = False
+        self._playback_rate_idx: int = 1  # 1.0x
+        self._active_segment_idx: int | None = None
+        self._pressed_seek_block: int | None = None
+        self._pending_seek_abs_ms: int | None = None
 
         self.setObjectName("transcript_view")
         self._build_ui()
@@ -220,11 +260,44 @@ class TranscriptView(QFrame):
 
         layout.addWidget(self.polish_error_bar)
 
+        # Compact synced audio playback bar (visible when a track is loaded)
+        self.playback_bar = QFrame()
+        self.playback_bar.setObjectName("transcript_playback_bar")
+        self.playback_bar.setVisible(False)
+        pb_layout = QHBoxLayout(self.playback_bar)
+        pb_layout.setContentsMargins(0, 4, 0, 4)
+        pb_layout.setSpacing(8)
+
+        self.btn_play_pause = QPushButton(tr("transcript.play"))
+        self.btn_play_pause.setFixedHeight(32)
+        self.btn_play_pause.setIconSize(QSize(14, 14))
+        self.btn_play_pause.setToolTip(tr("transcript.play_tooltip"))
+        pb_layout.addWidget(self.btn_play_pause)
+
+        self.slider_playback = QSlider(Qt.Horizontal)
+        self.slider_playback.setRange(0, 1000)
+        self.slider_playback.setValue(0)
+        pb_layout.addWidget(self.slider_playback, stretch=1)
+
+        self.lbl_playback_time = QLabel("00:00 / 00:00")
+        self.lbl_playback_time.setFont(fixed_mono_font(11))
+        pb_layout.addWidget(self.lbl_playback_time)
+
+        self.btn_playback_speed = QPushButton("1.0x")
+        self.btn_playback_speed.setFixedHeight(32)
+        self.btn_playback_speed.setFont(fixed_mono_font(11))
+        self.btn_playback_speed.setToolTip(tr("transcript.speed_tooltip"))
+        pb_layout.addWidget(self.btn_playback_speed)
+
+        layout.addWidget(self.playback_bar)
+
         # Text stream display
         self.txt_display = QTextEdit()
         self.txt_display.setReadOnly(False)
         self.txt_display.setPlaceholderText(tr("transcript.placeholder"))
         self.txt_display.setMinimumHeight(140)
+        self.txt_display.viewport().setMouseTracking(True)
+        self.txt_display.viewport().installEventFilter(self)
         layout.addWidget(self.txt_display, stretch=1)
 
         # Bottom action buttons
@@ -311,16 +384,29 @@ class TranscriptView(QFrame):
         self.btn_open_folder.clicked.connect(self._open_containing_folder)
         self.btn_copy.clicked.connect(self._copy_text)
         self.btn_clear.clicked.connect(self._on_clear_clicked)
+        self.btn_play_pause.clicked.connect(self.toggle_playback)
+        self.btn_playback_speed.clicked.connect(self._cycle_playback_speed)
+        self.slider_playback.sliderPressed.connect(self._on_slider_pressed)
+        self.slider_playback.sliderMoved.connect(self._on_slider_moved)
+        self.slider_playback.sliderReleased.connect(self._on_slider_released)
+        self.slider_playback.valueChanged.connect(self._on_slider_value_changed)
 
     def retranslate_ui(self) -> None:
         """Update all visible strings to the active application language."""
         self.lbl_section.setText(tr("transcript.title"))
         if self._current_track is None:
             self.lbl_status.setText(tr("transcript.idle"))
+            self.lbl_metrics.setText("")
         else:
             self.lbl_status.setText(
                 display_track_status(self._current_track.status_message, self._current_track.status)
             )
+            if self._current_track.status in (
+                TrackStatus.COMPLETED,
+                TrackStatus.CANCELLED,
+                TrackStatus.ERROR,
+            ):
+                self.lbl_metrics.setText("")
         self.btn_view_raw.setText(tr("transcript.raw"))
         self.btn_view_polished.setText(tr("transcript.polished"))
         for pid, act in self.polish_preset_actions.items():
@@ -362,6 +448,8 @@ class TranscriptView(QFrame):
         self._act_folder.setText(tr("transcript.menu_open_folder"))
         self.btn_open_folder.setText(tr("transcript.open_folder"))
         self.btn_clear.setText(tr("transcript.clear"))
+        self._update_play_pause_button()
+        self.btn_playback_speed.setToolTip(tr("transcript.speed_tooltip"))
 
     def apply_theme(self) -> None:
         """Apply the active theme palette to all transcript view elements."""
@@ -398,6 +486,40 @@ class TranscriptView(QFrame):
                 border-radius: 2px;
             }}
         """)
+
+        self.playback_bar.setStyleSheet("""
+            #transcript_playback_bar {
+                background: transparent;
+                border: none;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
+            }
+        """)
+        self.lbl_playback_time.setStyleSheet(f"color: {p.text_muted};")
+        pb_btn_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {p.text_main};
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 500;
+                border: 1px solid {p.border};
+                border-radius: 8px;
+            }}
+            QPushButton:hover:enabled {{
+                background-color: {p.bg_raised};
+                border-color: {p.border_light};
+            }}
+            QPushButton:disabled {{
+                color: {p.text_hint};
+                background-color: transparent;
+            }}
+        """
+        self.btn_play_pause.setStyleSheet(pb_btn_style)
+        self.btn_playback_speed.setStyleSheet(pb_btn_style)
+        self._update_play_pause_button()
 
         seg_btn_style = f"""
             QPushButton {{
@@ -496,6 +618,7 @@ class TranscriptView(QFrame):
             or (self._current_result and self._current_result.full_text)
         ):
             self._switch_view(self._active_mode, force=True)
+        self._highlight_active_segment()
 
     def _open_preset_menu(self) -> None:
         pos = self.btn_polish_preset.mapToGlobal(QPoint(0, self.btn_polish_preset.height() + 4))
@@ -655,6 +778,17 @@ class TranscriptView(QFrame):
         if metrics_text:
             self.lbl_metrics.setText(metrics_text)
 
+    def _format_segment_html(self, segment: TranscriptSegment) -> str:
+        ts_escaped = html.escape(segment.formatted_timerange)
+        text_escaped = html.escape(segment.text)
+        p = get_palette()
+        ts_html = (
+            f"<span style='color: {p.primary}; font-family: monospace; "
+            f"font-weight: 500;'>{ts_escaped}</span>"
+        )
+        text_html = f" <span style='color: {p.text_main};'>{text_escaped}</span>"
+        return f"{ts_html}{text_html}"
+
     def append_segment(self, segment: TranscriptSegment) -> None:
         """Append a newly streamed transcription segment."""
         self._raw_segments.append(segment)
@@ -663,14 +797,9 @@ class TranscriptView(QFrame):
             try:
                 cursor = self.txt_display.textCursor()
                 cursor.movePosition(QTextCursor.End)
-
-                ts_escaped = html.escape(segment.formatted_timerange)
-                text_escaped = html.escape(segment.text)
-                p = get_palette()
-                ts_html = f"<span style='color: {p.primary}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
-                text_html = f" <span style='color: {p.text_main};'>{text_escaped}</span><br>"
-
-                cursor.insertHtml(f"{ts_html}{text_html}")
+                if self.txt_display.document().blockCount() > 1 or bool(self.txt_display.toPlainText()):
+                    cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
+                cursor.insertHtml(self._format_segment_html(segment))
                 self.txt_display.setTextCursor(cursor)
                 self.txt_display.ensureCursorVisible()
             finally:
@@ -726,20 +855,17 @@ class TranscriptView(QFrame):
             elif self._raw_segments_stale and self._raw_edited_text is not None:
                 self.txt_display.setPlainText(self._raw_edited_text)
             elif self._raw_segments:
-                # Render raw segments
                 cursor = self.txt_display.textCursor()
-                for seg in self._raw_segments:
-                    ts_escaped = html.escape(seg.formatted_timerange)
-                    text_escaped = html.escape(seg.text)
-                    p = get_palette()
-                    ts_html = f"<span style='color: {p.primary}; font-family: monospace; font-weight: 500;'>{ts_escaped}</span>"
-                    text_html = f" <span style='color: {p.text_main};'>{text_escaped}</span><br>"
-                    cursor.insertHtml(f"{ts_html}{text_html}")
+                for idx, seg in enumerate(self._raw_segments):
+                    if idx > 0:
+                        cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
+                    cursor.insertHtml(self._format_segment_html(seg))
                 self.txt_display.setTextCursor(cursor)
             elif self._current_result and self._current_result.full_text:
                 self.txt_display.setPlainText(self._current_result.full_text)
         finally:
             self._updating_text = False
+        self._highlight_active_segment()
 
     def load_track(
         self,
@@ -757,6 +883,7 @@ class TranscriptView(QFrame):
             self._current_config = config
             self.set_status(display_track_status(track.status_message, track.status))
             self.set_progress(track.progress_percent)
+            self._load_track_audio(track)
             return
 
         result = track.result
@@ -813,6 +940,8 @@ class TranscriptView(QFrame):
         self.btn_export.setEnabled(True)
         self.btn_open_folder.setEnabled(True)
         self._update_polish_button_state()
+        if self._loaded_audio_path != track.file_path:
+            self._load_track_audio(track)
 
     def set_completed_docx(self, docx_path: Path) -> None:
         """Mark document as ready and enable export/folder actions."""
@@ -843,6 +972,7 @@ class TranscriptView(QFrame):
 
     def clear_view(self) -> None:
         """Clear transcription output and reset progress."""
+        self.release_player()
         self._raw_segments.clear()
         self._polished_text = None
         self._polished_model_name = ""
@@ -855,12 +985,23 @@ class TranscriptView(QFrame):
         self._current_config = None
         self._exported_paths.clear()
         self._current_docx_path = None
+        self._active_segment_idx = None
+        self._pressed_seek_block = None
 
         self._updating_text = True
         try:
             self.txt_display.clear()
+            self.txt_display.setExtraSelections([])
         finally:
             self._updating_text = False
+        self.playback_bar.setVisible(False)
+        self.lbl_playback_time.setText("00:00 / 00:00")
+        self._updating_slider = True
+        try:
+            self.slider_playback.setRange(0, 1000)
+            self.slider_playback.setValue(0)
+        finally:
+            self._updating_slider = False
         self.lbl_find_status.setText("")
         self.clear_polish_error()
         self.progress_bar.setRange(0, 100)
@@ -980,3 +1121,414 @@ class TranscriptView(QFrame):
         if clipboard:
             clipboard.setText(self.txt_display.toPlainText())
             self.lbl_status.setText(tr("transcript.status_copied"))
+
+    # --- Synced audio playback & click-to-seek ---
+
+    def _compute_slice_bounds_ms(self, track: AudioTrack) -> tuple[int, int]:
+        total_sec = max(0.0, track.info.duration)
+        cfg = track.slice_config
+        if cfg.mode == SliceMode.FULL or cfg.is_full(total_sec):
+            start_ms = 0
+            end_ms = int(round(total_sec * 1000))
+        else:
+            start_ms = int(round(max(0.0, cfg.start_sec) * 1000))
+            end_ms = int(round(cfg.effective_end(total_sec) * 1000))
+        return start_ms, max(start_ms, end_ms)
+
+    def refresh_playback_bounds(self) -> None:
+        """Recalculate playback slider bounds after the active track's trim range changes."""
+        if self._current_track is None:
+            return
+        self._slice_start_ms, self._slice_end_ms = self._compute_slice_bounds_ms(self._current_track)
+        slice_dur_ms = max(0, self._slice_end_ms - self._slice_start_ms)
+        self._playback_duration_ms = slice_dur_ms
+        self._updating_slider = True
+        try:
+            self.slider_playback.setRange(0, max(1, slice_dur_ms))
+            self.slider_playback.setValue(0)
+        finally:
+            self._updating_slider = False
+        if self._player is not None:
+            try:
+                self._player.setPosition(self._slice_start_ms)
+            except Exception:
+                pass
+        self._update_playback_time_label(0)
+
+    def _load_track_audio(self, track: AudioTrack) -> None:
+        self.release_player()
+        self._loaded_audio_path = track.file_path
+        self._slice_start_ms, self._slice_end_ms = self._compute_slice_bounds_ms(track)
+        slice_dur_ms = max(0, self._slice_end_ms - self._slice_start_ms)
+        self._playback_duration_ms = slice_dur_ms
+
+        self.playback_bar.setVisible(True)
+        self._updating_slider = True
+        try:
+            self.slider_playback.setRange(0, max(1, slice_dur_ms))
+            self.slider_playback.setValue(0)
+        finally:
+            self._updating_slider = False
+        self._update_playback_time_label(0)
+
+        has_media = False
+        if QMediaPlayer is not None and QAudioOutput is not None and track.file_path.is_file():
+            try:
+                player = QMediaPlayer(self)
+                audio_output = QAudioOutput(self)
+                player.setAudioOutput(audio_output)
+                player.positionChanged.connect(self._on_player_position_changed)
+                player.durationChanged.connect(self._on_player_duration_changed)
+                player.playbackStateChanged.connect(self._on_player_state_changed)
+                if hasattr(player, "mediaStatusChanged"):
+                    player.mediaStatusChanged.connect(self._on_media_status_changed)
+                if hasattr(player, "errorOccurred"):
+                    player.errorOccurred.connect(self._on_player_error)
+                player.setSource(QUrl.fromLocalFile(str(track.file_path)))
+                player.setPlaybackRate(self._PLAYBACK_RATES[self._playback_rate_idx])
+                if self._slice_start_ms > 0:
+                    player.setPosition(self._slice_start_ms)
+                self._player = player
+                self._audio_output = audio_output
+                has_media = True
+            except Exception:
+                self._player = None
+                self._audio_output = None
+
+        self.btn_play_pause.setEnabled(has_media)
+        self.slider_playback.setEnabled(has_media)
+        self.btn_playback_speed.setEnabled(has_media)
+        self.btn_play_pause.setToolTip(
+            tr("transcript.play_tooltip") if has_media else tr("transcript.playback_unavailable")
+        )
+        self._update_play_pause_button()
+
+    def _on_player_error(self, *_args) -> None:
+        self._update_play_pause_button()
+
+    def _is_playing(self) -> bool:
+        if self._player is None or QMediaPlayer is None:
+            return False
+        try:
+            return self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        except Exception:
+            return False
+
+    def _update_play_pause_button(self) -> None:
+        if self._is_playing():
+            self.btn_play_pause.setText(tr("transcript.pause"))
+            self.btn_play_pause.setIcon(load_ui_icon("pause"))
+        else:
+            self.btn_play_pause.setText(tr("transcript.play"))
+            self.btn_play_pause.setIcon(load_ui_icon("play"))
+
+    def toggle_playback(self) -> None:
+        """Toggle audio play/pause state."""
+        if self._player is None or QMediaPlayer is None:
+            return
+        try:
+            if self._is_playing():
+                self._player.pause()
+            else:
+                if self._slice_end_ms > self._slice_start_ms and self._player.position() >= self._slice_end_ms:
+                    self._player.setPosition(self._slice_start_ms)
+                elif self._player.position() < self._slice_start_ms:
+                    self._player.setPosition(self._slice_start_ms)
+                self._player.play()
+        except Exception:
+            pass
+
+    def pause_playback(self) -> None:
+        """Pause playback if currently playing."""
+        if self._player is not None and self._is_playing():
+            try:
+                self._player.pause()
+            except Exception:
+                pass
+
+    def _cycle_playback_speed(self) -> None:
+        self._playback_rate_idx = (self._playback_rate_idx + 1) % len(self._PLAYBACK_RATES)
+        rate = self._PLAYBACK_RATES[self._playback_rate_idx]
+        label = f"{rate:g}x"
+        if "." not in label:
+            label = f"{rate:.1f}x"
+        self.btn_playback_speed.setText(label)
+        if self._player is not None:
+            try:
+                self._player.setPlaybackRate(rate)
+            except Exception:
+                pass
+
+    def _on_slider_pressed(self) -> None:
+        self._slider_dragging = True
+
+    def _on_slider_moved(self, rel_ms: int) -> None:
+        self._update_playback_time_label(rel_ms)
+        self._sync_segment_for_rel_ms(rel_ms, scroll=False)
+
+    def _on_slider_released(self) -> None:
+        self._slider_dragging = False
+        self._seek_relative_ms(self.slider_playback.value())
+
+    def _on_slider_value_changed(self, rel_ms: int) -> None:
+        if self._updating_slider or self._slider_dragging:
+            return
+        self._seek_relative_ms(rel_ms)
+
+    def _seek_relative_ms(self, rel_ms: int) -> None:
+        clamped_rel = max(0, rel_ms)
+        if self._playback_duration_ms > 0:
+            clamped_rel = min(clamped_rel, self._playback_duration_ms)
+        abs_ms = self._slice_start_ms + clamped_rel
+        if self._player is not None:
+            self._pending_seek_abs_ms = abs_ms
+            try:
+                self._player.setPosition(abs_ms)
+            except Exception:
+                pass
+        self._update_playback_time_label(clamped_rel)
+        self._sync_segment_for_rel_ms(clamped_rel, scroll=False)
+        self.playback_position_changed.emit(clamped_rel / 1000.0)
+
+    def seek_to_segment(self, index: int, autoplay: bool = True) -> None:
+        """Seek audio playback to the start of transcript segment `index` and highlight it."""
+        if not (0 <= index < len(self._raw_segments)):
+            return
+        seg = self._raw_segments[index]
+        rel_ms = int(round(max(0.0, seg.start) * 1000))
+        if self._playback_duration_ms > 0:
+            rel_ms = min(rel_ms, self._playback_duration_ms)
+        abs_ms = self._slice_start_ms + rel_ms
+
+        self._active_segment_idx = index
+        self._highlight_active_segment(scroll=True)
+        self.segment_activated.emit(index)
+
+        self._updating_slider = True
+        try:
+            if rel_ms > self.slider_playback.maximum():
+                self.slider_playback.setMaximum(rel_ms)
+            self.slider_playback.setValue(rel_ms)
+        finally:
+            self._updating_slider = False
+        self._update_playback_time_label(rel_ms)
+        self.playback_position_changed.emit(rel_ms / 1000.0)
+
+        if self._player is not None:
+            self._pending_seek_abs_ms = abs_ms
+            try:
+                self._player.setPosition(abs_ms)
+                if autoplay:
+                    self._player.play()
+            except Exception:
+                pass
+
+    def _on_media_status_changed(self, status: object) -> None:
+        if (
+            self._pending_seek_abs_ms is not None
+            and self._player is not None
+            and QMediaPlayer is not None
+            and status
+            in (
+                QMediaPlayer.MediaStatus.LoadedMedia,
+                QMediaPlayer.MediaStatus.BufferedMedia,
+            )
+        ):
+            target = self._pending_seek_abs_ms
+            try:
+                self._player.setPosition(target)
+            except Exception:
+                pass
+
+    def _on_player_duration_changed(self, duration_ms: int) -> None:
+        if duration_ms <= 0:
+            return
+        if self._current_track is not None:
+            cfg = self._current_track.slice_config
+            if cfg.mode == SliceMode.FULL or cfg.is_full(self._current_track.info.duration):
+                self._slice_start_ms = 0
+                self._slice_end_ms = duration_ms
+        slice_dur_ms = max(0, self._slice_end_ms - self._slice_start_ms)
+        if slice_dur_ms <= 0:
+            slice_dur_ms = duration_ms
+        self._playback_duration_ms = slice_dur_ms
+        self._updating_slider = True
+        try:
+            self.slider_playback.setRange(0, max(1, slice_dur_ms))
+        finally:
+            self._updating_slider = False
+        if self._pending_seek_abs_ms is not None:
+            rel_ms = max(0, self._pending_seek_abs_ms - self._slice_start_ms)
+        elif self._player is not None:
+            rel_ms = max(0, self._player.position() - self._slice_start_ms)
+        else:
+            rel_ms = 0
+        self._update_playback_time_label(rel_ms)
+
+    def _on_player_position_changed(self, abs_ms: int) -> None:
+        if self._pending_seek_abs_ms is not None:
+            if abs(abs_ms - self._pending_seek_abs_ms) > 250:
+                return
+            self._pending_seek_abs_ms = None
+
+        if self._slice_end_ms > self._slice_start_ms and abs_ms >= self._slice_end_ms:
+            rel_ms = self._slice_end_ms - self._slice_start_ms
+            if self._is_playing():
+                self.pause_playback()
+        else:
+            rel_ms = max(0, abs_ms - self._slice_start_ms)
+
+        if not self._slider_dragging:
+            self._updating_slider = True
+            try:
+                self.slider_playback.setValue(min(rel_ms, self.slider_playback.maximum()))
+            finally:
+                self._updating_slider = False
+            self._update_playback_time_label(rel_ms)
+
+        self._sync_segment_for_rel_ms(rel_ms, scroll=self._is_playing())
+        self.playback_position_changed.emit(rel_ms / 1000.0)
+
+    def _on_player_state_changed(self, _state: object) -> None:
+        self._update_play_pause_button()
+
+    def _update_playback_time_label(self, rel_ms: int) -> None:
+        cur_str = format_seconds(max(0, rel_ms) / 1000.0)
+        tot_str = format_seconds(max(0, self._playback_duration_ms) / 1000.0)
+        self.lbl_playback_time.setText(f"{cur_str} / {tot_str}")
+
+    def _find_segment_for_time(self, rel_sec: float) -> int | None:
+        if not self._raw_segments or self._raw_segments_stale:
+            return None
+        matched: int | None = None
+        for idx, seg in enumerate(self._raw_segments):
+            if seg.start <= rel_sec <= seg.end:
+                matched = idx
+        return matched
+
+    def _sync_segment_for_rel_ms(self, rel_ms: int, scroll: bool = False) -> None:
+        idx = self._find_segment_for_time(max(0, rel_ms) / 1000.0)
+        if idx != self._active_segment_idx:
+            self._active_segment_idx = idx
+            self._highlight_active_segment(scroll=scroll)
+            if idx is not None:
+                self.segment_activated.emit(idx)
+
+    def _highlight_active_segment(self, scroll: bool = False) -> None:
+        if (
+            self._active_mode != "raw"
+            or self._raw_segments_stale
+            or self._active_segment_idx is None
+            or not (0 <= self._active_segment_idx < len(self._raw_segments))
+        ):
+            self.txt_display.setExtraSelections([])
+            return
+
+        seg = self._raw_segments[self._active_segment_idx]
+        doc = self.txt_display.document()
+        block = doc.findBlockByNumber(self._active_segment_idx)
+        if not block.isValid() or not block.text().startswith(seg.formatted_timerange):
+            # Fallback scan if user inserted blank lines
+            block = doc.begin()
+            found_block = None
+            while block.isValid():
+                if block.text().startswith(seg.formatted_timerange):
+                    found_block = block
+                    break
+                block = block.next()
+            if found_block is None:
+                self.txt_display.setExtraSelections([])
+                return
+            block = found_block
+
+        p = get_palette()
+        bg = QColor(p.primary)
+        bg.setAlpha(28)
+
+        sel = QTextEdit.ExtraSelection()
+        sel_cursor = QTextCursor(block)
+        sel_cursor.movePosition(QTextCursor.StartOfBlock)
+        sel_cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        sel.cursor = sel_cursor
+        sel.format.setBackground(bg)
+        sel.format.setProperty(QTextFormat.FullWidthSelection, True)
+        self.txt_display.setExtraSelections([sel])
+
+        if scroll:
+            scroll_cursor = QTextCursor(block)
+            vp_rect = self.txt_display.viewport().rect()
+            block_rect = self.txt_display.cursorRect(scroll_cursor)
+            if not vp_rect.contains(block_rect):
+                cur = self.txt_display.textCursor()
+                self._updating_text = True
+                try:
+                    self.txt_display.setTextCursor(scroll_cursor)
+                    self.txt_display.ensureCursorVisible()
+                finally:
+                    self.txt_display.setTextCursor(cur)
+                    self._updating_text = False
+
+    def _segment_index_at_pos(self, pos: QPoint, require_timestamp: bool) -> int | None:
+        if self._active_mode != "raw" or self._raw_segments_stale:
+            return None
+        cursor = self.txt_display.cursorForPosition(pos)
+        block_num = cursor.blockNumber()
+        if not (0 <= block_num < len(self._raw_segments)):
+            return None
+        if not require_timestamp:
+            return block_num
+        seg = self._raw_segments[block_num]
+        if cursor.positionInBlock() <= len(seg.formatted_timerange):
+            return block_num
+        return None
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.txt_display.viewport():
+            etype = event.type()
+            if etype == QEvent.MouseMove and self._active_mode == "raw":
+                pos = event.position().toPoint()
+                ctrl_cmd = bool(event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier))
+                idx = self._segment_index_at_pos(pos, require_timestamp=not ctrl_cmd)
+                self.txt_display.viewport().setCursor(
+                    Qt.PointingHandCursor if idx is not None else Qt.IBeamCursor
+                )
+            elif etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                pos = event.position().toPoint()
+                ctrl_cmd = bool(event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier))
+                self._pressed_seek_block = self._segment_index_at_pos(
+                    pos, require_timestamp=not ctrl_cmd
+                )
+            elif etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                pressed_block = self._pressed_seek_block
+                self._pressed_seek_block = None
+                if self._active_mode == "raw" and not self.txt_display.textCursor().hasSelection():
+                    pos = event.position().toPoint()
+                    ctrl_cmd = bool(event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier))
+                    idx = self._segment_index_at_pos(pos, require_timestamp=not ctrl_cmd)
+                    if idx is not None and idx == pressed_block:
+                        self.seek_to_segment(idx, autoplay=True)
+                        return True
+        return super().eventFilter(watched, event)
+
+    def release_player(self) -> None:
+        """Stop and release QMediaPlayer and QAudioOutput cleanly."""
+        self._loaded_audio_path = None
+        self._pending_seek_abs_ms = None
+        if self._player is not None:
+            try:
+                self._player.blockSignals(True)
+                self._player.stop()
+                self._player.setSource(QUrl())
+                self._player.setAudioOutput(None)
+            except Exception:
+                pass
+            self._player.deleteLater()
+            self._player = None
+        if self._audio_output is not None:
+            self._audio_output.blockSignals(True)
+            self._audio_output.deleteLater()
+            self._audio_output = None
+
+    def closeEvent(self, event) -> None:
+        self.release_player()
+        super().closeEvent(event)
