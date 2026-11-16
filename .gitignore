@@ -34,6 +34,4 @@ test_settings*.ini
 *.env
 
 graphify-out/
-\.agents-out/
-\.agents/
-\.agents/
+.agents/
