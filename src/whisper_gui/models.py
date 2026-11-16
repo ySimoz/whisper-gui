@@ -187,6 +187,7 @@ class AudioTrack:
         self.result: TranscriptionResult | None = None
         self.error_message: str | None = None
         self.output_docx_path: Path | None = None
+        self.history_id: str | None = None
 
     @property
     def default_docx_path(self) -> Path:

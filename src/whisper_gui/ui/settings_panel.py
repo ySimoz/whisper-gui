@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListView,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -34,7 +35,15 @@ from whisper_gui.transcriber import (
     get_model_cache_size_mb,
     is_model_downloaded_on_disk,
 )
-from whisper_gui.ui.theme import ToggleSwitch, get_palette, get_theme_name, swatch_icon
+from whisper_gui.ui.theme import (
+    ToggleSwitch,
+    fixed_mono_font,
+    get_palette,
+    get_theme_name,
+    load_ui_icon,
+    swatch_icon,
+)
+from whisper_gui.worker import ModelDownloadWorker
 
 SUPPORTED_LANGUAGES = [
     ("Auto-detect", None),
@@ -135,6 +144,7 @@ class SettingsPanel(QWidget):
         self._custom_output_dir: Path | None = None
         self._ram_loaded = False
         self._ram_model_name: str | None = None
+        self._download_worker: ModelDownloadWorker | None = None
         self._section_labels: list[QLabel] = []
         self._field_labels: list[QLabel] = []
         self._section_label_keys: list[tuple[QLabel, str]] = []
@@ -228,21 +238,39 @@ class SettingsPanel(QWidget):
         self.combo_model.setFixedHeight(36)
 
         disk_row = QHBoxLayout()
-        disk_row.setSpacing(12)
+        disk_row.setSpacing(8)
         self.lbl_disk_status = QLabel(tr("settings.disk_downloaded_short"))
         self._muted_labels.append(self.lbl_disk_status)
         disk_row.addWidget(self.lbl_disk_status, stretch=1)
+
+        self.btn_download_model = QPushButton(tr("settings.download_model_btn"))
+        self.btn_download_model.setIconSize(QSize(16, 16))
+        self.btn_download_model.setFixedHeight(32)
+        disk_row.addWidget(self.btn_download_model)
 
         self.btn_delete_model = QPushButton(tr("settings.delete_model_btn"))
         self.btn_delete_model.setFixedHeight(32)
         self.btn_delete_model.setEnabled(False)
         disk_row.addWidget(self.btn_delete_model)
 
+        self.model_download_bar = QProgressBar()
+        self.model_download_bar.setRange(0, 100)
+        self.model_download_bar.setValue(0)
+        self.model_download_bar.setTextVisible(False)
+        self.model_download_bar.setFixedHeight(4)
+        self.model_download_bar.setVisible(False)
+
+        self.lbl_download_progress = QLabel("")
+        self.lbl_download_progress.setFont(fixed_mono_font(11))
+        self.lbl_download_progress.setVisible(False)
+
         model_group = QVBoxLayout()
         model_group.setContentsMargins(0, 0, 0, 0)
         model_group.setSpacing(8)
         model_group.addWidget(self.combo_model)
         model_group.addLayout(disk_row)
+        model_group.addWidget(self.model_download_bar)
+        model_group.addWidget(self.lbl_download_progress)
         self._add_field_group(layout, "settings.whisper_model", model_group)
 
         self.combo_lang = QComboBox()
@@ -368,6 +396,7 @@ class SettingsPanel(QWidget):
         # Connect signals
         self.combo_app_language.currentIndexChanged.connect(self._on_app_language_selected)
         self.combo_model.currentIndexChanged.connect(self._on_model_selected)
+        self.btn_download_model.clicked.connect(self._on_download_model_clicked)
         self.btn_delete_model.clicked.connect(self._on_delete_model_clicked)
         self.combo_lang.currentIndexChanged.connect(self._on_setting_changed)
         self.combo_device.currentIndexChanged.connect(self._on_device_changed)
@@ -424,6 +453,11 @@ class SettingsPanel(QWidget):
             if model_id in _MODEL_KEY_MAP:
                 self.combo_model.setItemText(i, tr(_MODEL_KEY_MAP[model_id]))
 
+        self.btn_download_model.setText(
+            tr("settings.cancel_download_btn")
+            if self._download_worker and self._download_worker.isRunning()
+            else tr("settings.download_model_btn")
+        )
         self.btn_delete_model.setText(tr("settings.delete_model_btn"))
         self._update_disk_status()
 
@@ -471,10 +505,14 @@ class SettingsPanel(QWidget):
         self.btn_check_updates.setText(tr("settings.check_updates_btn"))
 
     def _on_model_selected(self) -> None:
+        if not (self._download_worker and self._download_worker.isRunning()):
+            self.lbl_download_progress.setVisible(False)
         self._update_disk_status()
         self._on_setting_changed()
 
     def _update_disk_status(self) -> None:
+        if self._download_worker and self._download_worker.isRunning():
+            return
         model_name = str(self.combo_model.currentData())
         is_downloaded = is_model_downloaded_on_disk(model_name)
         est_mb = estimate_model_ram_mb(model_name)
@@ -489,9 +527,102 @@ class SettingsPanel(QWidget):
                 tr("settings.disk_downloaded_detail", size_str=size_str, ram_mb=est_mb)
             )
             self.btn_delete_model.setEnabled(True)
+            self.btn_download_model.setVisible(False)
+            self.btn_download_model.setEnabled(False)
         else:
             self.lbl_disk_status.setText(tr("settings.disk_not_cached", ram_mb=est_mb))
             self.btn_delete_model.setEnabled(False)
+            self.btn_download_model.setIcon(load_ui_icon("download"))
+            self.btn_download_model.setText(tr("settings.download_model_btn"))
+            self.btn_download_model.setVisible(True)
+            self.btn_download_model.setEnabled(True)
+
+    def _on_download_model_clicked(self) -> None:
+        if self._download_worker and self._download_worker.isRunning():
+            self._download_worker.request_stop()
+            self.btn_download_model.setEnabled(False)
+            self.lbl_download_progress.setText(tr("settings.download_cancelling"))
+            return
+
+        model_name = str(self.combo_model.currentData())
+        if not model_name:
+            return
+
+        p = get_palette()
+        self.combo_model.setEnabled(False)
+        self.btn_delete_model.setEnabled(False)
+        self.btn_delete_model.setVisible(False)
+        self.btn_download_model.setIcon(load_ui_icon("close"))
+        self.btn_download_model.setText(tr("settings.cancel_download_btn"))
+        self.btn_download_model.setEnabled(True)
+        self.model_download_bar.setRange(0, 0)
+        self.model_download_bar.setVisible(True)
+        self.lbl_disk_status.setText(tr("settings.downloading_model", model=model_name))
+        self.lbl_download_progress.setStyleSheet(f"color: {p.text_muted};")
+        self.lbl_download_progress.setText(tr("transcriber.downloading_preparing_short"))
+        self.lbl_download_progress.setVisible(True)
+
+        self._download_worker = ModelDownloadWorker(model_name=model_name, parent=self)
+        self._download_worker.progress_updated.connect(self._on_model_download_progress)
+        self._download_worker.status_updated.connect(self._on_model_download_status)
+        self._download_worker.completed.connect(self._on_model_download_completed)
+        self._download_worker.failed.connect(self._on_model_download_failed)
+        self._download_worker.cancelled.connect(self._on_model_download_cancelled)
+        self._download_worker.finished.connect(self._on_model_download_finished)
+        self._download_worker.start()
+
+    def _on_model_download_progress(self, percent: int, metrics_text: str) -> None:
+        if percent < 0:
+            if self.model_download_bar.maximum() != 0:
+                self.model_download_bar.setRange(0, 0)
+        else:
+            if self.model_download_bar.minimum() != 0 or self.model_download_bar.maximum() != 100:
+                self.model_download_bar.setRange(0, 100)
+            self.model_download_bar.setValue(max(0, min(100, percent)))
+        if metrics_text:
+            self.lbl_download_progress.setText(metrics_text)
+
+    def _on_model_download_status(self, message: str) -> None:
+        # Keep disk status line concise while byte metrics live in lbl_download_progress
+        if not self.lbl_download_progress.isVisible():
+            self.lbl_disk_status.setText(message)
+
+    def _on_model_download_completed(self, model_name: str) -> None:
+        self.model_download_bar.setRange(0, 100)
+        self.model_download_bar.setValue(100)
+        self.model_download_bar.setVisible(False)
+        self.lbl_download_progress.setVisible(False)
+
+    def _on_model_download_failed(self, error_msg: str) -> None:
+        p = get_palette()
+        self.model_download_bar.setRange(0, 100)
+        self.model_download_bar.setValue(0)
+        self.model_download_bar.setVisible(False)
+        self.lbl_download_progress.setStyleSheet(f"color: {p.negative};")
+        self.lbl_download_progress.setText(tr("settings.download_failed", error=error_msg))
+        self.lbl_download_progress.setVisible(True)
+
+    def _on_model_download_cancelled(self) -> None:
+        self.model_download_bar.setRange(0, 100)
+        self.model_download_bar.setValue(0)
+        self.model_download_bar.setVisible(False)
+        self.lbl_download_progress.setVisible(False)
+
+    def _on_model_download_finished(self) -> None:
+        worker = self._download_worker
+        self._download_worker = None
+        if worker is not None:
+            worker.wait(1000)
+            worker.deleteLater()
+        self.combo_model.setEnabled(True)
+        self.btn_delete_model.setVisible(True)
+        self._update_disk_status()
+
+    def stop_download(self) -> None:
+        """Stop any in-flight model download safely during shutdown."""
+        if self._download_worker and self._download_worker.isRunning():
+            self._download_worker.request_stop()
+            self._download_worker.wait(3000)
 
     def _on_delete_model_clicked(self) -> None:
         model_name = str(self.combo_model.currentData())
@@ -574,6 +705,9 @@ class SettingsPanel(QWidget):
         """
         self.btn_theme_graphite.setStyleSheet(btn_style)
         self.btn_theme_blush.setStyleSheet(btn_style)
+        is_downloading = bool(self._download_worker and self._download_worker.isRunning())
+        self.btn_download_model.setIcon(load_ui_icon("close" if is_downloading else "download"))
+        self.lbl_download_progress.setStyleSheet(f"color: {p.text_muted};")
         self.set_selected_theme(get_theme_name())
 
     def _on_device_changed(self) -> None:

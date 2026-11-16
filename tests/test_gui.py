@@ -929,6 +929,7 @@ def test_theme_switching_drop_animation(qtbot):
     try:
         win = MainWindow()
         qtbot.addWidget(win)
+        win.show()
         win.resize(960, 680)
         win._open_settings_page()
         win.show()
@@ -1370,3 +1371,191 @@ def test_main_window_polish_preset_sync_elapsed_and_error_recovery(qtbot, tmp_pa
         gc.collect()
     finally:
         set_language(prev_lang)
+
+
+def test_main_window_history_page_and_reopen(qtbot, tmp_path, monkeypatch):
+    from whisper_gui.i18n import get_language, set_language
+
+    monkeypatch.setenv("WHISPER_GUI_HISTORY_DIR", str(tmp_path / "hist_dir"))
+    prev_lang = get_language()
+    set_language("en")
+    try:
+        win = MainWindow()
+        qtbot.addWidget(win)
+        win.show()
+
+        assert win.btn_open_history.text() == "History"
+        assert win.page_stack.count() == 3
+
+        # Simulate track completion -> auto-persisted to local history
+        audio_p = tmp_path / "podcast.wav"
+        audio_p.write_bytes(b"wav")
+        t1 = AudioTrack(audio_p, AudioInfo(path=audio_p, filename="podcast.wav", duration=42.0))
+        win.track_list._tracks.append(t1)
+        win.track_list._track_map[t1.id] = t1
+        win.track_list._refresh_table()
+        win._on_track_selected(t1)
+
+        res = TranscriptionResult(
+            segments=[TranscriptSegment(start=0.0, end=2.0, text="Welcome to episode one")],
+            full_text="Welcome to episode one",
+            detected_language="en",
+            audio_duration=42.0,
+            elapsed_time=7.0,
+            polished_text="Welcome to Episode 1.",
+            llm_model_used="deepseek-flash",
+        )
+        win._on_worker_track_completed(t1.id, res)
+
+        entries = win.history_store.list_entries()
+        assert len(entries) == 1
+        assert entries[0].filename == "podcast.wav"
+
+        # Clear workspace & remove source audio to prove reopening needs no audio file or re-transcribe
+        win.track_list.clear_all()
+        audio_p.unlink()
+        assert len(win.track_list.get_tracks()) == 0
+
+        # Open History page
+        win.btn_open_history.click()
+        assert win.page_stack.currentIndex() == 2
+        assert win.history_page.lbl_count.text() == "1 transcript"
+        assert len(win.history_page._row_widgets) == 1
+
+        # Search filter works
+        win.history_page.txt_search.setText("nonexistent-xyz")
+        assert win.history_page.lbl_count.text() == "0 transcripts"
+        assert win.history_page.empty_card.isVisible()
+
+        win.history_page.txt_search.setText("episode")
+        assert win.history_page.lbl_count.text() == "1 transcript"
+        assert len(win.history_page._row_widgets) == 1
+
+        # Live IT retranslation on History page & Export All button
+        it_idx = win.settings_panel.combo_app_language.findData("it")
+        win.settings_panel.combo_app_language.setCurrentIndex(it_idx)
+        assert win.btn_open_history.text() == "Cronologia"
+        assert win.history_page.page_title.text() == "Cronologia"
+        assert win.history_page.btn_clear_all.text() == "Svuota cronologia"
+        assert win.track_list.btn_export_all.text() == "Esporta tutto"
+
+        en_idx = win.settings_panel.combo_app_language.findData("en")
+        win.settings_panel.combo_app_language.setCurrentIndex(en_idx)
+
+        # Reopen entry -> switches back to Transcribe page with transcript loaded
+        win.history_page._row_widgets[0].btn_open.click()
+        assert win.page_stack.currentIndex() == 0
+        assert len(win.track_list.get_tracks()) == 1
+        assert win.transcript_view.txt_display.toPlainText() == "Welcome to Episode 1."
+        assert win.transcript_view.btn_export.isEnabled()
+
+        # Delete entry from History page
+        win.btn_open_history.click()
+        win.history_page._row_widgets[0].btn_delete.click()
+        assert win.history_store.list_entries() == []
+        assert win.history_page.empty_card.isVisible()
+        win.close()
+    finally:
+        set_language(prev_lang)
+
+
+def test_batch_export_all_completed_tracks(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setenv("WHISPER_GUI_HISTORY_DIR", str(tmp_path / "hist_batch"))
+    win = MainWindow()
+    qtbot.addWidget(win)
+
+    assert not win.track_list.btn_export_all.isEnabled()
+    assert win.track_list.btn_export_all.text() == "Export All"
+
+    p1 = tmp_path / "alpha.wav"
+    p2 = tmp_path / "beta.wav"
+    p3 = tmp_path / "pending.wav"
+    for p in (p1, p2, p3):
+        p.touch()
+
+    t1 = AudioTrack(p1, AudioInfo(path=p1, filename="alpha.wav", duration=20.0))
+    t1.status = TrackStatus.COMPLETED
+    t1.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=2.0, text="Alpha transcript")],
+        full_text="Alpha transcript",
+    )
+
+    t2 = AudioTrack(p2, AudioInfo(path=p2, filename="beta.wav", duration=30.0))
+    t2.status = TrackStatus.COMPLETED
+    t2.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=2.0, text="Beta transcript")],
+        full_text="Beta transcript",
+    )
+
+    t3 = AudioTrack(p3, AudioInfo(path=p3, filename="pending.wav", duration=10.0))
+    t3.status = TrackStatus.QUEUED
+
+    for t in (t1, t2, t3):
+        win.track_list._tracks.append(t)
+        win.track_list._track_map[t.id] = t
+    win.track_list._refresh_table()
+    win.track_list.track_count_changed.emit(3)
+
+    assert win.track_list.btn_export_all.isEnabled()
+    assert win.track_list.btn_export_all.text() == "Export All (2)"
+
+    export_dir = tmp_path / "batch_out"
+    win.track_list.export_all_requested.emit("md", export_dir)
+
+    alpha_md = export_dir / "alpha_transcript.md"
+    beta_md = export_dir / "beta_transcript.md"
+    pending_md = export_dir / "pending_transcript.md"
+    assert alpha_md.is_file()
+    assert beta_md.is_file()
+    assert not pending_md.exists()
+    assert "Alpha transcript" in alpha_md.read_text(encoding="utf-8")
+    assert "Beta transcript" in beta_md.read_text(encoding="utf-8")
+    assert t1.result.md_path == alpha_md
+    assert t2.result.md_path == beta_md
+    assert "Exported 2 file(s) as MD" in win.status_bar.currentMessage()
+    win.close()
+
+
+def test_settings_panel_model_download_progress_and_busy_bar(qtbot, tmp_path, monkeypatch):
+    fake_cache = tmp_path / "hf_cache"
+    fake_cache.mkdir()
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(fake_cache))
+
+    panel = SettingsPanel()
+    qtbot.addWidget(panel)
+
+    idx_small = panel.combo_model.findData("small")
+    panel.combo_model.setCurrentIndex(idx_small)
+    assert panel.btn_download_model.isEnabled()
+    assert panel.btn_download_model.text() == "Download Model"
+
+    def fake_download(model_name, on_progress=None, on_status=None, should_stop=None, local_files_only=False):
+        if on_status:
+            on_status(f"Downloading '{model_name}': 120.0 / 240.0 MB (50%)")
+        if on_progress:
+            on_progress(50, "120.0 / 240.0 MB (50%)")
+        snap = fake_cache / f"models--Systran--faster-whisper-{model_name}" / "snapshots" / "main"
+        snap.mkdir(parents=True, exist_ok=True)
+        (snap / "model.bin").write_bytes(b"x" * 2048)
+        if on_progress:
+            on_progress(100, "240.0 / 240.0 MB (100%)")
+        return str(snap)
+
+    monkeypatch.setattr("whisper_gui.worker.download_model_with_progress", fake_download)
+    panel.btn_download_model.click()
+    qtbot.waitUntil(lambda: panel._download_worker is None, timeout=3000)
+
+    assert panel.btn_delete_model.isEnabled()
+    assert not panel.btn_download_model.isVisible()
+    assert "Downloaded on disk" in panel.lbl_disk_status.text()
+
+    # TranscriptView busy indeterminate mode (-1) and recovery to determinate mode (0..100)
+    view = TranscriptView()
+    qtbot.addWidget(view)
+    view.set_progress(-1, "Loading model weights...")
+    assert view.progress_bar.maximum() == 0
+    assert view.lbl_metrics.text() == "Loading model weights..."
+    view.set_progress(42, "42%")
+    assert view.progress_bar.minimum() == 0
+    assert view.progress_bar.maximum() == 100
+    assert view.progress_bar.value() == 42

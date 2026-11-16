@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import tempfile
@@ -23,7 +24,7 @@ from whisper_gui.models import (
     TranscriptionConfig,
     TranscriptionResult,
 )
-from whisper_gui.transcriber import Transcriber
+from whisper_gui.transcriber import Transcriber, download_model_with_progress
 
 logger = logging.getLogger(__name__)
 
@@ -165,15 +166,32 @@ class TranscriptionWorker(QThread):
                     tx_started_at = time.monotonic()
                 self.status_updated.emit(track.id, msg)
 
-            result = self.transcriber.transcribe(
-                audio_file=temp_wav_path,
-                config=self.config,
-                slice_duration=slice_duration,
-                on_segment=handle_segment,
-                on_progress=handle_progress,
-                on_status=handle_status,
-                should_stop=self.should_stop,
-            )
+            def handle_model_progress(pct: int, msg: str) -> None:
+                self.progress_updated.emit(track.id, pct, msg)
+
+            transcribe_kwargs: dict[str, object] = {
+                "audio_file": temp_wav_path,
+                "config": self.config,
+                "slice_duration": slice_duration,
+                "on_segment": handle_segment,
+                "on_progress": handle_progress,
+                "on_status": handle_status,
+                "should_stop": self.should_stop,
+            }
+            target_fn = getattr(self.transcriber.transcribe, "side_effect", None)
+            if not callable(target_fn):
+                target_fn = self.transcriber.transcribe
+            try:
+                params = inspect.signature(target_fn).parameters
+                accepts_model_progress = "on_model_progress" in params or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+                )
+            except (ValueError, TypeError):
+                accepts_model_progress = True
+            if accepts_model_progress:
+                transcribe_kwargs["on_model_progress"] = handle_model_progress
+
+            result = self.transcriber.transcribe(**transcribe_kwargs)
 
             if self.should_stop():
                 track.status = TrackStatus.CANCELLED
@@ -346,3 +364,46 @@ class PolishWorker(QThread):
             logger.warning("LLM re-polishing failed: %s", exc)
             result.llm_error = str(exc)
             self.failed.emit(self.track.id, str(exc))
+
+
+class ModelDownloadWorker(QThread):
+    """Background thread that pre-downloads a Whisper model from HuggingFace with live progress."""
+
+    progress_updated = Signal(int, str)  # percent (-1 for indeterminate, or 0-100), metrics text
+    status_updated = Signal(str)
+    completed = Signal(str)  # model_name
+    failed = Signal(str)     # error_message
+    cancelled = Signal()
+
+    def __init__(self, model_name: str, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.model_name = model_name
+        self._is_cancelled = False
+
+    def request_stop(self) -> None:
+        """Signal the download worker to stop."""
+        self._is_cancelled = True
+
+    def should_stop(self) -> bool:
+        """Return True if download cancellation was requested."""
+        return self._is_cancelled
+
+    def run(self) -> None:
+        """Execute model snapshot download on background thread."""
+        try:
+            download_model_with_progress(
+                model_name=self.model_name,
+                on_progress=lambda pct, msg: self.progress_updated.emit(pct, msg),
+                on_status=lambda msg: self.status_updated.emit(msg),
+                should_stop=self.should_stop,
+            )
+            if self.should_stop():
+                self.cancelled.emit()
+                return
+            self.completed.emit(self.model_name)
+        except CancelledError:
+            self.cancelled.emit()
+        except Exception as exc:
+            logger.warning("Model download failed for %s: %s", self.model_name, exc)
+            self.failed.emit(str(exc))
+

@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -53,11 +54,14 @@ from PySide6.QtWidgets import (
 
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
+from whisper_gui.exporters import export_transcript
+from whisper_gui.history import TranscriptHistoryStore
 from whisper_gui.i18n import display_track_status, get_language, set_language, tr
 from whisper_gui.llm_cleaner import get_preset_label
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
 from whisper_gui.platform_utils import get_app_icon, get_asset_path
 from whisper_gui.transcriber import Transcriber
+from whisper_gui.ui.history_page import HistoryPageWidget
 from whisper_gui.ui.llm_panel import LLMPanel
 from whisper_gui.ui.range_selector import RangeSelectorWidget, TrimAudioDialog
 from whisper_gui.ui.settings_page import SettingsPageWidget
@@ -220,6 +224,7 @@ class MainWindow(QMainWindow):
 
         # Transcriber singleton for caching models
         self.transcriber = Transcriber()
+        self.history_store = TranscriptHistoryStore()
         self.current_worker: TranscriptionWorker | None = None
         self._polish_worker: PolishWorker | None = None
         self._active_track: AudioTrack | None = None
@@ -287,6 +292,12 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.lbl_model_badge)
 
         header_layout.addStretch()
+
+        self.btn_open_history = QPushButton(tr("main.history_button"))
+        self.btn_open_history.setIconSize(QSize(16, 16))
+        self.btn_open_history.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
+        self.btn_open_history.clicked.connect(self._open_history_page)
+        header_layout.addWidget(self.btn_open_history)
 
         self.btn_open_settings = QPushButton(tr("main.settings_button"))
         self.btn_open_settings.setFixedHeight(32)
@@ -469,6 +480,12 @@ class MainWindow(QMainWindow):
         self.settings_page.back_requested.connect(self._close_settings_page)
         self.page_stack.addWidget(self.settings_page)
 
+        # ---------------- Page 2: Dedicated History Page ----------------
+        self.history_page = HistoryPageWidget(self.history_store, self)
+        self.history_page.back_requested.connect(self._close_history_page)
+        self.history_page.open_entry_requested.connect(self._open_history_entry)
+        self.page_stack.addWidget(self.history_page)
+
         # Compatibility container for tests asserting `window.config_tabs.count() == 3`
         self.config_tabs = QTabWidget()
         self.config_tabs.addTab(self.range_selector, tr("main.tab_trimming"))
@@ -485,6 +502,7 @@ class MainWindow(QMainWindow):
         # Connect Signals
         self.track_list.track_selected.connect(self._on_track_selected)
         self.track_list.track_count_changed.connect(self._on_track_count_changed)
+        self.track_list.export_all_requested.connect(self._on_export_all_requested)
         self.range_selector.range_changed.connect(self._on_range_changed)
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
         self.settings_panel.check_updates_requested.connect(lambda: self._check_for_updates(manual=True))
@@ -496,6 +514,7 @@ class MainWindow(QMainWindow):
         self.transcript_view.polish_requested.connect(self._on_repolish_clicked)
         self.transcript_view.preset_selected.connect(self._on_transcript_preset_selected)
         self.transcript_view.llm_settings_requested.connect(self._open_llm_settings)
+        self.transcript_view.track_exported.connect(self._on_transcript_exported)
 
         # Initial state
         self.range_selector.set_track(None)
@@ -531,6 +550,7 @@ class MainWindow(QMainWindow):
         """)
         self.title_lbl.setStyleSheet(f"color: {p.text_main}; font-size: 14px; font-weight: 500;")
         self.lbl_model_badge.setStyleSheet(f"color: {p.text_muted};")
+        self.btn_open_history.setIcon(load_ui_icon("history"))
         self.btn_open_settings.setIcon(load_ui_icon("settings"))
 
         self.tracks_drawer.setStyleSheet(f"""
@@ -618,6 +638,7 @@ class MainWindow(QMainWindow):
         self.settings_page.apply_theme()
         self.settings_panel.apply_theme()
         self.llm_panel.apply_theme()
+        self.history_page.apply_theme()
 
     def _on_theme_changed(self, theme_name: str, origin_widget: QWidget | None = None) -> None:
         if theme_name == get_theme_name():
@@ -656,6 +677,7 @@ class MainWindow(QMainWindow):
 
     def retranslate_ui(self) -> None:
         """Refresh all visible text across the main window and child widgets."""
+        self.btn_open_history.setText(tr("main.history_button"))
         self.btn_open_settings.setText(tr("main.settings_button"))
         self.lbl_drawer_title.setText(tr("main.drawer_title"))
         self.btn_close_drawer.setToolTip(tr("main.drawer_close_tooltip"))
@@ -672,6 +694,7 @@ class MainWindow(QMainWindow):
         self.settings_page.retranslate_ui()
         self.settings_panel.retranslate_ui()
         self.llm_panel.retranslate_ui()
+        self.history_page.retranslate_ui()
         self.range_selector.retranslate_ui()
         self.track_list.retranslate_ui()
         self.transcript_view.retranslate_ui()
@@ -722,6 +745,122 @@ class MainWindow(QMainWindow):
         self.page_stack.setCurrentIndex(0)
         self._on_model_changed()
         self.chk_polish_sync.setChecked(self.llm_panel.chk_enable.isChecked())
+
+    def _open_history_page(self) -> None:
+        self.history_page.refresh_entries()
+        self.page_stack.setCurrentIndex(2)
+
+    def _close_history_page(self) -> None:
+        self.page_stack.setCurrentIndex(0)
+
+    def _open_history_entry(self, entry_id: str) -> None:
+        entry = self.history_store.get_entry(entry_id)
+        if entry is None:
+            self.history_page.refresh_entries()
+            return
+        track = self.history_store.to_audio_track(entry)
+        added = self.track_list.add_existing_track(track, select=True)
+        self._sync_queue_display()
+        self._set_active_track(added)
+        self._close_history_page()
+        self.status_bar.showMessage(tr("main.status_opened_history", filename=added.info.filename))
+
+    def _on_transcript_exported(self, track: object) -> None:
+        if isinstance(track, AudioTrack) and track.result is not None:
+            try:
+                self.history_store.save_track(track, self.settings_panel.get_config())
+            except Exception:
+                pass
+
+    def export_completed_tracks(
+        self,
+        fmt: str = "",
+        target_dir: Path | None = None,
+    ) -> tuple[list[Path], list[tuple[str, str]]]:
+        """Batch export all completed tracks in the queue to the specified format."""
+        config = self.settings_panel.get_config()
+        config.llm_config = self.llm_panel.get_config()
+        resolved_fmt = (fmt or config.export_format or "docx").lower().lstrip(".")
+        dest_dir = target_dir if target_dir is not None else config.output_dir
+
+        completed = [
+            t
+            for t in self.track_list.get_tracks()
+            if t.status == TrackStatus.COMPLETED and t.result is not None
+        ]
+        saved_paths: list[Path] = []
+        errors: list[tuple[str, str]] = []
+
+        for track in completed:
+            assert track.result is not None
+            try:
+                out_path = track.effective_export_path(resolved_fmt, dest_dir)
+                export_result = (
+                    replace(track.result, segments=[])
+                    if track.result.raw_segments_stale
+                    else track.result
+                )
+                saved = export_transcript(
+                    format_name=resolved_fmt,
+                    output_path=out_path,
+                    track_info=track.info,
+                    slice_config=track.slice_config,
+                    transcription_config=config,
+                    result=export_result,
+                )
+                if resolved_fmt == "docx":
+                    track.result.docx_path = saved
+                    track.output_docx_path = saved
+                elif resolved_fmt == "pdf":
+                    track.result.pdf_path = saved
+                elif resolved_fmt == "md":
+                    track.result.md_path = saved
+                elif resolved_fmt == "txt":
+                    track.result.txt_path = saved
+
+                if track.history_id:
+                    self.history_store.save_track(track, config)
+                if self._active_track is not None and self._active_track.id == track.id:
+                    self.transcript_view._exported_paths[resolved_fmt] = saved
+                    if resolved_fmt == "docx":
+                        self.transcript_view._current_docx_path = saved
+
+                saved_paths.append(saved)
+            except Exception as exc:
+                errors.append((track.info.filename, str(exc)))
+
+        return saved_paths, errors
+
+    def _on_export_all_requested(self, fmt: str, target_dir: object) -> None:
+        config = self.settings_panel.get_config()
+        resolved_fmt = (fmt or config.export_format or "docx").lower().lstrip(".")
+        dest_dir = target_dir if isinstance(target_dir, Path) else None
+        saved, errors = self.export_completed_tracks(fmt=resolved_fmt, target_dir=dest_dir)
+        if not saved and not errors:
+            self.status_bar.showMessage(tr("main.status_batch_empty"))
+            return
+        if errors:
+            msg = tr(
+                "main.status_batch_partial",
+                saved=len(saved),
+                failed=len(errors),
+                fmt=resolved_fmt.upper(),
+            )
+            self.status_bar.showMessage(msg)
+            QMessageBox.warning(
+                self,
+                tr("main.dlg_batch_partial_title"),
+                tr(
+                    "main.dlg_batch_partial_body",
+                    saved=len(saved),
+                    errors="\n".join(f"{name}: {err}" for name, err in errors[:5]),
+                ),
+            )
+            return
+        msg = tr("main.status_batch_exported", count=len(saved), fmt=resolved_fmt.upper())
+        self.status_bar.showMessage(msg)
+        if self._active_track and self._active_track.status == TrackStatus.COMPLETED:
+            self.transcript_view.set_status(msg)
 
     def _on_model_changed(self) -> None:
         model_name = str(
@@ -1042,6 +1181,11 @@ class MainWindow(QMainWindow):
         track = self.track_list.get_track(track_id)
         if track:
             track.result = result
+            track.status = TrackStatus.COMPLETED
+            try:
+                self.history_store.save_track(track, self.settings_panel.get_config())
+            except Exception:
+                pass
         self.track_list.refresh_track_display(track_id)
 
         if self._active_track is None or self._active_track.id == track_id:
@@ -1153,6 +1297,12 @@ class MainWindow(QMainWindow):
         self._stop_polish_timer()
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(bool(self.current_worker and self.current_worker.isRunning()))
+        track = self.track_list.get_track(track_id)
+        if track and track.result:
+            try:
+                self.history_store.save_track(track, self.settings_panel.get_config())
+            except Exception:
+                pass
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_polished_text(
                 result.polished_text or "", result.llm_model_used or ""
@@ -1271,4 +1421,5 @@ class MainWindow(QMainWindow):
         if self._polish_worker and self._polish_worker.isRunning():
             self._polish_worker.request_stop()
             self._polish_worker.wait(3000)
+        self.settings_panel.stop_download()
         event.accept()
