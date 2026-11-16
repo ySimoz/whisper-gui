@@ -119,6 +119,7 @@ class LLMConfig:
     instruction_file: Path | None = None
     custom_instructions_text: str | None = None
     include_raw_in_docx: bool = True
+    prompt_preset: str = "default"
 
 
 @dataclass

@@ -29,9 +29,12 @@ from whisper_gui.credentials import load_api_key, store_api_key
 from whisper_gui.i18n import tr
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
+    PROMPT_PRESET_IDS,
     PROVIDER_PRESETS,
+    get_preset_label,
     load_instructions,
     normalize_model_name,
+    normalize_preset_id,
     test_llm_connection,
 )
 from whisper_gui.models import LLMConfig
@@ -48,8 +51,8 @@ class InstructionEditorDialog(QDialog):
         self.modified_text = current_text
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
 
         self.editor = QPlainTextEdit()
         self.editor.setPlainText(current_text)
@@ -83,6 +86,7 @@ class LLMPanel(QWidget):
         super().__init__(parent)
         self.setObjectName("llm_panel")
         self.setStyleSheet("#llm_panel { background-color: transparent; }")
+        self._prompt_preset: str = "default"
         self._custom_instruction_path: Path | None = None
         self._custom_instruction_text: str | None = None
         self._conn_state: str | None = None  # "ok", "err", or None
@@ -187,6 +191,13 @@ class LLMPanel(QWidget):
         # Prompt Instructions
         ctrl_layout.addWidget(self._make_field_label("llm.custom_prompt"))
 
+        self.combo_preset = QComboBox()
+        self.combo_preset.setView(QListView())
+        self.combo_preset.setFixedHeight(36)
+        self._sync_preset_combo()
+        self.combo_preset.currentIndexChanged.connect(self._on_preset_index_changed)
+        ctrl_layout.addWidget(self.combo_preset)
+
         self.lbl_active_prompt = QLabel(tr("llm.active_default"))
         ctrl_layout.addWidget(self.lbl_active_prompt)
 
@@ -262,12 +273,52 @@ class LLMPanel(QWidget):
             tr("llm.hide_btn") if self.txt_api_key.echoMode() == QLineEdit.Normal else tr("llm.show_btn")
         )
         self.btn_test_conn.setText(tr("llm.test_conn_btn"))
+        self._sync_preset_combo()
         self._refresh_active_prompt_label()
         self.btn_view_edit.setText(tr("llm.view_edit_btn"))
         self.btn_import_md.setText(tr("llm.import_md_btn"))
         self.btn_reset_default.setText(tr("llm.reset_default_btn"))
         self.chk_raw_appendix.setText(tr("llm.chk_raw_appendix"))
         self._update_enabled_states()
+
+    def _has_custom_prompt(self) -> bool:
+        return bool(
+            (self._custom_instruction_text and self._custom_instruction_text.strip())
+            or (self._custom_instruction_path and Path(self._custom_instruction_path).is_file())
+        )
+
+    def _sync_preset_combo(self) -> None:
+        self.combo_preset.blockSignals(True)
+        self.combo_preset.clear()
+        for preset_id in PROMPT_PRESET_IDS:
+            self.combo_preset.addItem(get_preset_label(preset_id), preset_id)
+        if self._has_custom_prompt():
+            self.combo_preset.addItem(tr("llm.preset_custom"), "custom")
+            self.combo_preset.setCurrentIndex(self.combo_preset.count() - 1)
+        else:
+            idx = self.combo_preset.findData(self._prompt_preset)
+            self.combo_preset.setCurrentIndex(idx if idx >= 0 else 0)
+        self.combo_preset.blockSignals(False)
+
+    def _on_preset_index_changed(self, _index: int) -> None:
+        data = str(self.combo_preset.currentData() or "default")
+        if data == "custom":
+            return
+        self.set_prompt_preset(data)
+
+    def set_prompt_preset(self, preset_id: str) -> None:
+        """Select a built-in polishing preset and clear any custom override."""
+        pid = normalize_preset_id(preset_id)
+        self._prompt_preset = pid
+        self._custom_instruction_path = None
+        self._custom_instruction_text = None
+        self._sync_preset_combo()
+        self._refresh_active_prompt_label()
+        self.config_changed.emit()
+
+    def active_prompt_preset(self) -> str | None:
+        """Return active preset ID, or None if a custom prompt/file overrides it."""
+        return None if self._has_custom_prompt() else self._prompt_preset
 
     def _refresh_active_prompt_label(self) -> None:
         if self._custom_instruction_path and self._custom_instruction_text is not None:
@@ -277,8 +328,12 @@ class LLMPanel(QWidget):
                 self.lbl_active_prompt.setText(tr("llm.active_custom_file", name=self._custom_instruction_path.name))
         elif self._custom_instruction_path and Path(self._custom_instruction_path).is_file():
             self.lbl_active_prompt.setText(tr("llm.active_file", name=Path(self._custom_instruction_path).name))
-        elif self._custom_instruction_text:
+        elif self._custom_instruction_text and self._custom_instruction_text.strip():
             self.lbl_active_prompt.setText(tr("llm.active_custom_instructions"))
+        elif self._prompt_preset != "default":
+            self.lbl_active_prompt.setText(
+                tr("llm.active_preset", name=get_preset_label(self._prompt_preset))
+            )
         else:
             self.lbl_active_prompt.setText(tr("llm.active_default"))
 
@@ -343,7 +398,7 @@ class LLMPanel(QWidget):
         cfg = self.get_config()
         p = get_palette()
         self._conn_state = None
-        self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 11px;")
+        self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         self.lbl_conn_status.setText(tr("llm.connecting"))
         self.btn_test_conn.setEnabled(False)
 
@@ -379,7 +434,8 @@ class LLMPanel(QWidget):
             content = p.read_text(encoding="utf-8")
             self._custom_instruction_path = p
             self._custom_instruction_text = content
-            self.lbl_active_prompt.setText(tr("llm.active_file", name=p.name))
+            self._sync_preset_combo()
+            self._refresh_active_prompt_label()
             self.config_changed.emit()
             QMessageBox.information(
                 self,
@@ -399,6 +455,7 @@ class LLMPanel(QWidget):
         dlg = InstructionEditorDialog(current_text, self)
         if dlg.exec() == QDialog.Accepted:
             self._custom_instruction_text = dlg.modified_text
+            self._sync_preset_combo()
             if self._custom_instruction_path:
                 self.lbl_active_prompt.setText(
                     tr("llm.active_custom_file", name=self._custom_instruction_path.name)
@@ -408,9 +465,11 @@ class LLMPanel(QWidget):
             self.config_changed.emit()
 
     def _reset_instructions(self) -> None:
+        self._prompt_preset = "default"
         self._custom_instruction_path = None
         self._custom_instruction_text = None
-        self.lbl_active_prompt.setText(tr("llm.active_default"))
+        self._sync_preset_combo()
+        self._refresh_active_prompt_label()
         self.config_changed.emit()
 
     def get_config(self) -> LLMConfig:
@@ -426,6 +485,7 @@ class LLMPanel(QWidget):
             instruction_file=self._custom_instruction_path,
             custom_instructions_text=self._custom_instruction_text,
             include_raw_in_docx=self.chk_raw_appendix.isChecked(),
+            prompt_preset=self._prompt_preset,
         )
 
     def set_config(self, cfg: LLMConfig) -> None:
@@ -462,16 +522,11 @@ class LLMPanel(QWidget):
         self.txt_base_url.setText(cfg.base_url)
         self.chk_raw_appendix.setChecked(cfg.include_raw_in_docx)
 
+        self._prompt_preset = normalize_preset_id(getattr(cfg, "prompt_preset", "default"))
         self._custom_instruction_path = cfg.instruction_file
         self._custom_instruction_text = cfg.custom_instructions_text
-        if cfg.instruction_file and Path(cfg.instruction_file).is_file():
-            self.lbl_active_prompt.setText(
-                tr("llm.active_file", name=Path(cfg.instruction_file).name)
-            )
-        elif cfg.custom_instructions_text:
-            self.lbl_active_prompt.setText(tr("llm.active_custom_instructions"))
-        else:
-            self.lbl_active_prompt.setText(tr("llm.active_default"))
+        self._sync_preset_combo()
+        self._refresh_active_prompt_label()
 
         self._update_enabled_states()
 
@@ -483,10 +538,23 @@ class LLMPanel(QWidget):
         settings.setValue("model_name", self.combo_model.currentText())
         settings.setValue("base_url", self.txt_base_url.text().strip())
         settings.setValue("include_raw_docx", self.chk_raw_appendix.isChecked())
+        settings.setValue("prompt_preset", self._prompt_preset)
         if self._custom_instruction_path:
             settings.setValue("instruction_file", str(self._custom_instruction_path))
         else:
             settings.setValue("instruction_file", "")
+        custom_text_to_save = ""
+        if self._custom_instruction_text and self._custom_instruction_text.strip():
+            if not self._custom_instruction_path or not self._custom_instruction_path.is_file():
+                custom_text_to_save = self._custom_instruction_text
+            else:
+                try:
+                    disk_text = self._custom_instruction_path.read_text(encoding="utf-8", errors="replace")
+                    if self._custom_instruction_text != disk_text:
+                        custom_text_to_save = self._custom_instruction_text
+                except OSError:
+                    custom_text_to_save = self._custom_instruction_text
+        settings.setValue("custom_instructions_text", custom_text_to_save)
         settings.endGroup()
         store_api_key(self.txt_api_key.text().strip(), settings)
 
@@ -499,6 +567,8 @@ class LLMPanel(QWidget):
         base_url = settings.value("base_url", "https://api.deepseek.com/v1", type=str)
         include_raw = settings.value("include_raw_docx", True, type=bool)
         instr_path_str = settings.value("instruction_file", "", type=str)
+        preset_id = settings.value("prompt_preset", "default", type=str)
+        custom_text = settings.value("custom_instructions_text", "", type=str)
         settings.endGroup()
         api_key = load_api_key(settings)
 
@@ -511,6 +581,8 @@ class LLMPanel(QWidget):
             api_key=api_key,
             base_url=base_url,
             instruction_file=instr_file,
+            custom_instructions_text=custom_text or None,
             include_raw_in_docx=include_raw,
+            prompt_preset=normalize_preset_id(preset_id),
         )
         self.set_config(cfg)

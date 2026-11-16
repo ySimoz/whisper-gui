@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -52,7 +53,8 @@ from PySide6.QtWidgets import (
 
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
-from whisper_gui.i18n import get_language, set_language, tr
+from whisper_gui.i18n import display_track_status, get_language, set_language, tr
+from whisper_gui.llm_cleaner import get_preset_label
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
 from whisper_gui.platform_utils import get_app_icon, get_asset_path
 from whisper_gui.transcriber import Transcriber
@@ -224,10 +226,17 @@ class MainWindow(QMainWindow):
         self._update_check_worker: UpdateCheckWorker | None = None
         self._manual_update_check = False
         self._theme_overlay: ThemeDropOverlay | None = None
+        self._polish_start_time: float | None = None
+        self._polishing_model_name: str = ""
+        self._polishing_track_id: str | None = None
+        self._polish_elapsed_timer = QTimer(self)
+        self._polish_elapsed_timer.setInterval(1000)
+        self._polish_elapsed_timer.timeout.connect(self._on_polish_elapsed_tick)
 
         self._build_ui()
         self.apply_theme()
         self._load_settings()
+        self.transcript_view.sync_polish_preset(self.llm_panel.active_prompt_preset())
         self._on_model_changed()
         self._check_dependencies()
         self._sync_queue_display()
@@ -479,7 +488,10 @@ class MainWindow(QMainWindow):
         self.settings_panel.app_language_changed.connect(self._on_app_language_changed)
         self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
         self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
+        self.llm_panel.config_changed.connect(self._on_llm_config_changed)
         self.transcript_view.polish_requested.connect(self._on_repolish_clicked)
+        self.transcript_view.preset_selected.connect(self._on_transcript_preset_selected)
+        self.transcript_view.llm_settings_requested.connect(self._open_llm_settings)
 
         # Initial state
         self.range_selector.set_track(None)
@@ -685,6 +697,21 @@ class MainWindow(QMainWindow):
     def _open_settings_page(self) -> None:
         self.settings_panel._update_disk_status()
         self.page_stack.setCurrentIndex(1)
+
+    def _open_llm_settings(self) -> None:
+        self._open_settings_page()
+        self.settings_page.scroll_to_llm()
+        QTimer.singleShot(0, self.settings_page.scroll_to_llm)
+
+    def _on_llm_config_changed(self) -> None:
+        self.transcript_view.sync_polish_preset(self.llm_panel.active_prompt_preset())
+
+    def _on_transcript_preset_selected(self, preset_id: str) -> None:
+        self.llm_panel.set_prompt_preset(preset_id)
+        self._save_settings()
+        self.status_bar.showMessage(
+            tr("main.status_preset_selected", name=get_preset_label(preset_id))
+        )
 
     def _close_settings_page(self) -> None:
         self.page_stack.setCurrentIndex(0)
@@ -911,6 +938,8 @@ class MainWindow(QMainWindow):
         self.current_worker.status_updated.connect(self._on_worker_status_updated)
         self.current_worker.segment_received.connect(self._on_worker_segment_received)
         self.current_worker.progress_updated.connect(self._on_worker_progress_updated)
+        self.current_worker.polishing_started.connect(self._on_worker_polishing_started)
+        self.current_worker.polishing_finished.connect(self._on_worker_polishing_finished)
         self.current_worker.track_completed.connect(self._on_worker_track_completed)
         self.current_worker.track_error.connect(self._on_worker_track_error)
         self.current_worker.batch_finished.connect(self._on_worker_finished)
@@ -923,6 +952,11 @@ class MainWindow(QMainWindow):
             self.transcript_view.set_status(tr("main.status_stopping"))
             self.status_bar.showMessage(tr("main.status_stopping"))
             self.current_worker.request_stop()
+            self.btn_stop.setEnabled(False)
+        elif self._polish_worker and self._polish_worker.isRunning():
+            self.transcript_view.set_status(tr("main.status_stopping"))
+            self.status_bar.showMessage(tr("main.status_stopping"))
+            self._polish_worker.request_stop()
             self.btn_stop.setEnabled(False)
 
     def _on_worker_track_started(self, track_id: str) -> None:
@@ -956,7 +990,40 @@ class MainWindow(QMainWindow):
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_progress(percent, time_str)
 
+    def _start_polish_timer(self, track_id: str, model_name: str) -> None:
+        self._polishing_track_id = track_id
+        self._polishing_model_name = model_name
+        self._polish_start_time = time.monotonic()
+        self._polish_elapsed_timer.start()
+
+    def _stop_polish_timer(self) -> None:
+        self._polish_elapsed_timer.stop()
+        self._polish_start_time = None
+        self._polishing_track_id = None
+        self._polishing_model_name = ""
+
+    def _on_polish_elapsed_tick(self) -> None:
+        if self._polish_start_time is None:
+            return
+        elapsed = max(1, int(time.monotonic() - self._polish_start_time))
+        msg = tr(
+            "main.status_polishing_elapsed",
+            model=self._polishing_model_name,
+            seconds=elapsed,
+        )
+        if self._active_track is None or self._active_track.id == self._polishing_track_id:
+            self.transcript_view.set_status(msg)
+            self.transcript_view.lbl_metrics.setText(f"{elapsed}s")
+        self.status_bar.showMessage(msg)
+
+    def _on_worker_polishing_started(self, track_id: str, model_name: str) -> None:
+        self._start_polish_timer(track_id, model_name)
+
+    def _on_worker_polishing_finished(self, _track_id: str) -> None:
+        self._stop_polish_timer()
+
     def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
+        self._stop_polish_timer()
         track = self.track_list.get_track(track_id)
         if track:
             track.result = result
@@ -967,6 +1034,8 @@ class MainWindow(QMainWindow):
                 self.transcript_view.set_polished_text(
                     result.polished_text, result.llm_model_used or ""
                 )
+            elif result.llm_error:
+                self.transcript_view.show_polish_error(result.llm_error)
             if track:
                 self.transcript_view.set_completed_track(
                     track, result, self.settings_panel.get_config()
@@ -977,12 +1046,15 @@ class MainWindow(QMainWindow):
                 self.transcript_view.btn_export.setEnabled(True)
                 self.transcript_view.btn_open_folder.setEnabled(True)
 
-        if result.docx_path:
+        if result.llm_error and not (result.polished_text and result.polished_text.strip()):
+            self.status_bar.showMessage(tr("main.status_polish_error", error=result.llm_error))
+        elif result.docx_path:
             self.status_bar.showMessage(tr("main.status_saved", filename=result.docx_path.name))
         if self.transcriber.is_loaded:
             self.settings_panel.set_ram_status(True, self.transcriber.loaded_model_name)
 
     def _on_worker_track_error(self, track_id: str, error_msg: str) -> None:
+        self._stop_polish_timer()
         self.track_list.refresh_track_display(track_id)
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_status(tr("main.status_error", error=error_msg))
@@ -1006,6 +1078,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_worker_cancelled(self) -> None:
+        self._stop_polish_timer()
         self._reset_ui_state()
         self.status_bar.showMessage(tr("main.status_cancelled"))
 
@@ -1044,10 +1117,13 @@ class MainWindow(QMainWindow):
             self._open_settings_page()
             return
 
+        self.transcript_view.clear_polish_error()
         self.transcript_view.btn_polish.setEnabled(False)
         self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
         self.transcript_view.set_status(tr("main.status_polishing", model=llm_cfg.model_name))
         self.status_bar.showMessage(tr("main.status_polishing", model=llm_cfg.model_name))
+        self._start_polish_timer(track.id, llm_cfg.model_name)
 
         self._polish_worker = PolishWorker(track=track, llm_config=llm_cfg, parent=self)
         self._polish_worker.completed.connect(self._on_polish_completed)
@@ -1057,31 +1133,42 @@ class MainWindow(QMainWindow):
         self._polish_worker.start()
 
     def _on_polish_completed(self, track_id: str, result: TranscriptionResult) -> None:
+        self._stop_polish_timer()
         self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(bool(self.current_worker and self.current_worker.isRunning()))
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_polished_text(
                 result.polished_text or "", result.llm_model_used or ""
             )
             self.transcript_view.set_status(tr("main.status_polished"))
+            track = self.track_list.get_track(track_id)
+            if track and track.result and track.result.speed_factor > 0:
+                self.transcript_view.lbl_metrics.setText(
+                    display_track_status(track.status_message, track.status)
+                )
+            else:
+                self.transcript_view.lbl_metrics.setText("")
         self.status_bar.showMessage(tr("main.status_polished"))
         self.track_list.refresh_track_display(track_id)
 
     def _on_polish_failed(self, track_id: str, error_msg: str) -> None:
+        self._stop_polish_timer()
         self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(bool(self.current_worker and self.current_worker.isRunning()))
         self.transcript_view._update_polish_button_state()
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_status(tr("main.status_polish_error", error=error_msg))
+            self.transcript_view.show_polish_error(error_msg)
+            self.transcript_view.lbl_metrics.setText("")
         self.status_bar.showMessage(tr("main.status_polish_error", error=error_msg))
-        QMessageBox.warning(
-            self,
-            tr("main.dlg_polish_failed_title"),
-            tr("main.dlg_polish_failed_body", error=error_msg),
-        )
 
     def _on_polish_cancelled(self) -> None:
+        self._stop_polish_timer()
         self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(bool(self.current_worker and self.current_worker.isRunning()))
         self.transcript_view._update_polish_button_state()
         self.transcript_view.set_status(tr("main.status_polish_cancelled"))
+        self.transcript_view.lbl_metrics.setText("")
         self.status_bar.showMessage(tr("main.status_polish_cancelled"))
 
     def _on_polish_worker_finished(self) -> None:
@@ -1158,6 +1245,7 @@ class MainWindow(QMainWindow):
         self._update_check_worker = None
 
     def closeEvent(self, event) -> None:
+        self._stop_polish_timer()
         overlay = self._theme_overlay
         self._theme_overlay = None
         if overlay is not None:

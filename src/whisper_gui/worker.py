@@ -34,6 +34,8 @@ class TranscriptionWorker(QThread):
     status_updated = Signal(str, str)                    # track_id, message
     segment_received = Signal(str, object)               # track_id, TranscriptSegment
     progress_updated = Signal(str, int, str)             # track_id, percent (0-100), time_str
+    polishing_started = Signal(str, str)                 # track_id, model_name
+    polishing_finished = Signal(str)                     # track_id
     track_completed = Signal(str, object)                # track_id, TranscriptionResult
     track_error = Signal(str, str)                       # track_id, error_message
     batch_finished = Signal()
@@ -147,7 +149,8 @@ class TranscriptionWorker(QThread):
 
             # 3.5 Optional LLM Polishing
             llm_cfg = self.config.llm_config
-            if llm_cfg.enabled and llm_cfg.api_key.strip():
+            if llm_cfg.enabled and (llm_cfg.api_key.strip() or llm_cfg.provider == "Custom"):
+                self.polishing_started.emit(track.id, llm_cfg.model_name)
                 try:
                     self.status_updated.emit(
                         track.id, tr("worker.polishing", model=llm_cfg.model_name)
@@ -174,6 +177,8 @@ class TranscriptionWorker(QThread):
                     self.status_updated.emit(
                         track.id, tr("worker.polish_warning", error=llm_err)
                     )
+                finally:
+                    self.polishing_finished.emit(track.id)
 
             if self.should_stop():
                 track.status = TrackStatus.CANCELLED
