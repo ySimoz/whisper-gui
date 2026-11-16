@@ -477,8 +477,14 @@ class TranscriptView(QFrame):
         self.lbl_status.setText(message)
 
     def set_progress(self, percent: int, metrics_text: str = "") -> None:
-        """Update the progress bar and metrics."""
-        self.progress_bar.setValue(max(0, min(100, percent)))
+        """Update the progress bar and metrics; negative percent switches to indeterminate busy state."""
+        if percent < 0:
+            if self.progress_bar.maximum() != 0:
+                self.progress_bar.setRange(0, 0)
+        else:
+            if self.progress_bar.minimum() != 0 or self.progress_bar.maximum() != 100:
+                self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(max(0, min(100, percent)))
         if metrics_text:
             self.lbl_metrics.setText(metrics_text)
 
@@ -667,6 +673,7 @@ class TranscriptView(QFrame):
         finally:
             self._updating_text = False
         self.lbl_find_status.setText("")
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.lbl_status.setText(tr("transcript.idle"))
         self.lbl_metrics.setText("")

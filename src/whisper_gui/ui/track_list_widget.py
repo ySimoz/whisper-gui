@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
 from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_info
 from whisper_gui.i18n import display_track_status, tr
 from whisper_gui.models import AudioTrack, TrackStatus
-from whisper_gui.ui.theme import fixed_mono_font, get_palette
+from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma",
@@ -48,6 +49,7 @@ class TrackListWidget(QFrame):
 
     track_selected = Signal(object)  # Emits AudioTrack or None
     track_count_changed = Signal(int)
+    export_all_requested = Signal(str, object)  # format_name ("docx", ..., or ""), target_dir (Path | None)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -118,7 +120,37 @@ class TrackListWidget(QFrame):
         self.table.setTextElideMode(Qt.ElideMiddle)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(36)
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, stretch=1)
+
+        # Drawer footer: batch export action for completed tracks
+        footer = QHBoxLayout()
+        footer.setSpacing(8)
+
+        self.btn_export_all = QPushButton(tr("tracks.export_all"))
+        self.btn_export_all.setIconSize(QSize(16, 16))
+        self.btn_export_all.setFixedHeight(32)
+        self.btn_export_all.setEnabled(False)
+
+        self.export_all_menu = QMenu(self)
+        self._act_all_docx = self.export_all_menu.addAction(tr("transcript.menu_docx"))
+        self._act_all_docx.triggered.connect(lambda: self.export_all_requested.emit("docx", None))
+        self._act_all_pdf = self.export_all_menu.addAction(tr("transcript.menu_pdf"))
+        self._act_all_pdf.triggered.connect(lambda: self.export_all_requested.emit("pdf", None))
+        self._act_all_md = self.export_all_menu.addAction(tr("transcript.menu_md"))
+        self._act_all_md.triggered.connect(lambda: self.export_all_requested.emit("md", None))
+        self._act_all_txt = self.export_all_menu.addAction(tr("transcript.menu_txt"))
+        self._act_all_txt.triggered.connect(lambda: self.export_all_requested.emit("txt", None))
+        self._act_all_srt = self.export_all_menu.addAction(tr("transcript.menu_srt"))
+        self._act_all_srt.triggered.connect(lambda: self.export_all_requested.emit("srt", None))
+        self._act_all_vtt = self.export_all_menu.addAction(tr("transcript.menu_vtt"))
+        self._act_all_vtt.triggered.connect(lambda: self.export_all_requested.emit("vtt", None))
+        self.export_all_menu.addSeparator()
+        self._act_all_folder = self.export_all_menu.addAction(tr("tracks.export_all_folder"))
+        self._act_all_folder.triggered.connect(self._on_export_all_to_folder_clicked)
+
+        self.btn_export_all.setMenu(self.export_all_menu)
+        footer.addWidget(self.btn_export_all, stretch=1)
+        layout.addLayout(footer)
 
         self.apply_theme()
 
@@ -142,12 +174,20 @@ class TrackListWidget(QFrame):
             tr("tracks.col_status"),
             tr("tracks.col_docx"),
         ])
+        self._act_all_docx.setText(tr("transcript.menu_docx"))
+        self._act_all_pdf.setText(tr("transcript.menu_pdf"))
+        self._act_all_md.setText(tr("transcript.menu_md"))
+        self._act_all_txt.setText(tr("transcript.menu_txt"))
+        self._act_all_srt.setText(tr("transcript.menu_srt"))
+        self._act_all_vtt.setText(tr("transcript.menu_vtt"))
+        self._act_all_folder.setText(tr("tracks.export_all_folder"))
         current_row = self.table.currentRow()
         self.table.blockSignals(True)
         self._refresh_table()
         if 0 <= current_row < self.table.rowCount():
             self.table.selectRow(current_row)
         self.table.blockSignals(False)
+        self._update_export_all_state()
 
     def apply_theme(self) -> None:
         """Apply the active palette to the queue table and status colors."""
@@ -166,6 +206,37 @@ class TrackListWidget(QFrame):
                 padding: 4px 8px;
             }}
             QTableWidget::item:selected {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+            }}
+        """)
+        self.btn_export_all.setIcon(load_ui_icon("export"))
+        self.btn_export_all.setStyleSheet(f"""
+            QPushButton {{
+                padding: 4px 24px 4px 12px;
+            }}
+            QPushButton::menu-indicator {{
+                image: url({p.chevron_url});
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+                right: 8px;
+                width: 12px;
+                height: 12px;
+            }}
+        """)
+        self.export_all_menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px 6px 12px;
+                border-radius: 4px;
+                color: {p.text_main};
+            }}
+            QMenu::item:selected {{
                 background-color: {p.bg_raised};
                 color: {p.text_main};
             }}
@@ -256,6 +327,41 @@ class TrackListWidget(QFrame):
         if self._tracks and self.table.currentRow() == -1:
             self.table.selectRow(0)
 
+    def add_existing_track(self, track: AudioTrack, select: bool = True) -> AudioTrack:
+        """Add or focus a pre-built AudioTrack (e.g., reopened from history)."""
+        for idx, existing in enumerate(self._tracks):
+            if (track.history_id and existing.history_id == track.history_id) or (
+                existing.file_path == track.file_path and existing.status == track.status
+            ):
+                if select:
+                    self.table.selectRow(idx)
+                return existing
+
+        self._tracks.append(track)
+        self._track_map[track.id] = track
+        self._refresh_table()
+        self.track_count_changed.emit(len(self._tracks))
+        if select:
+            self.table.selectRow(len(self._tracks) - 1)
+        return track
+
+    def _on_export_all_to_folder_clicked(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, tr("tracks.select_export_folder_title"))
+        if folder:
+            self.export_all_requested.emit("", Path(folder).resolve())
+
+    def _update_export_all_state(self) -> None:
+        completed_count = sum(
+            1
+            for t in self._tracks
+            if t.status == TrackStatus.COMPLETED and t.result is not None
+        )
+        self.btn_export_all.setEnabled(completed_count > 0)
+        if completed_count > 0:
+            self.btn_export_all.setText(tr("tracks.export_all_count", count=completed_count))
+        else:
+            self.btn_export_all.setText(tr("tracks.export_all"))
+
     def _refresh_table(self) -> None:
         self.table.setRowCount(len(self._tracks))
         for row, track in enumerate(self._tracks):
@@ -290,6 +396,7 @@ class TrackListWidget(QFrame):
             item_docx = QTableWidgetItem(docx_name)
             item_docx.setToolTip(str(track.effective_docx_path()))
             self.table.setItem(row, 3, item_docx)
+        self._update_export_all_state()
 
     def _on_selection_changed(self) -> None:
         row = self.table.currentRow()
@@ -365,3 +472,4 @@ class TrackListWidget(QFrame):
         item_docx = self.table.item(row, 3)
         if item_docx:
             item_docx.setText(track.effective_docx_path().name)
+        self._update_export_all_state()
