@@ -110,6 +110,7 @@ def test_main_window_live_language_switch_and_persistence(tmp_path: Path) -> Non
             assert window.settings_page.btn_back.text() == "Back to Transcribe"
             assert window.llm_panel.btn_test_conn.text() == "Test Connection"
             assert window.transcript_view.btn_export.text() == "Export"
+            assert window.transcript_view.btn_play_pause.text() == "Play"
 
             # Switch live to Italian via the settings combobox
             it_idx = window.settings_panel.combo_app_language.findData("it")
@@ -122,6 +123,7 @@ def test_main_window_live_language_switch_and_persistence(tmp_path: Path) -> Non
             assert window.settings_page.btn_back.text() == "Torna alla trascrizione"
             assert window.llm_panel.btn_test_conn.text() == "Verifica connessione"
             assert window.transcript_view.btn_export.text() == "Esporta"
+            assert window.transcript_view.btn_play_pause.text() == "Riproduci"
             assert window.track_list.table.horizontalHeaderItem(0).text() == "Traccia"
             assert window.range_selector.radio_full.text() == "Audio completo"
 

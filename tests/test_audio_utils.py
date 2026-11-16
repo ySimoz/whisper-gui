@@ -9,6 +9,7 @@ from whisper_gui.audio_utils import (
     AudioProbeError,
     CancelledError,
     check_ffmpeg_installed,
+    extract_waveform_peaks,
     format_seconds,
     get_audio_info,
     get_ffmpeg_cmd,
@@ -94,3 +95,30 @@ def test_slice_audio_cancellation(sample_wav_path: Path, tmp_path: Path):
             end_sec=5.0,
             should_stop=lambda: True,  # Immediate stop
         )
+
+
+def test_extract_waveform_peaks_valid_and_edge_cases(sample_wav_path: Path, tmp_path: Path):
+    peaks = extract_waveform_peaks(sample_wav_path, num_bins=80)
+    assert len(peaks) == 80
+    assert all(0.0 <= p <= 1.0 for p in peaks)
+    assert max(peaks) == pytest.approx(1.0)
+
+    # Silent WAV produces all-zero bins without error
+    silent_wav = tmp_path / "silent.wav"
+    import wave
+
+    with wave.open(str(silent_wav), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 16000)
+    silent_peaks = extract_waveform_peaks(silent_wav, num_bins=40)
+    assert silent_peaks == [0.0] * 40
+
+    # Missing, corrupt, zero-bin, and cancelled cases fail gracefully
+    assert extract_waveform_peaks(tmp_path / "missing.wav", num_bins=40) == []
+    corrupt = tmp_path / "corrupt.wav"
+    corrupt.write_bytes(b"not valid audio data")
+    assert extract_waveform_peaks(corrupt, num_bins=40) == []
+    assert extract_waveform_peaks(sample_wav_path, num_bins=0) == []
+    assert extract_waveform_peaks(sample_wav_path, num_bins=40, should_cancel=lambda: True) == []

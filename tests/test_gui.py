@@ -1012,3 +1012,210 @@ def test_toggle_switch_drag_and_tap(qtbot):
     send_mouse(QEvent.Type.MouseButtonRelease, 22.0, Qt.NoButton)
     assert sw.isChecked()
     qtbot.waitUntil(lambda: abs(sw._pos - 1.0) < 0.01, timeout=1000)
+
+
+def test_transcript_view_playback_and_click_to_seek(qtbot, tmp_path):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent, QTextCursor
+
+    wav_path = tmp_path / "synced.wav"
+    _write_test_wav(wav_path, duration_sec=4)
+
+    info = AudioInfo(path=wav_path, filename="synced.wav", duration=4.0, sample_rate=16000, channels=1)
+    track = AudioTrack(wav_path, info)
+    track.status = TrackStatus.COMPLETED
+    track.result = TranscriptionResult(
+        segments=[
+            TranscriptSegment(start=0.0, end=1.5, text="First segment"),
+            TranscriptSegment(start=1.5, end=3.0, text="Second segment"),
+            TranscriptSegment(start=3.0, end=4.0, text="Third segment"),
+        ],
+        full_text="First segment Second segment Third segment",
+        polished_text="Polished summary text.",
+        llm_model_used="deepseek-flash",
+        audio_duration=4.0,
+        elapsed_time=0.5,
+    )
+
+    view = TranscriptView()
+    qtbot.addWidget(view)
+    view.resize(640, 420)
+    view.show()
+    view.load_track(track)
+    QApplication.processEvents()
+
+    assert view.playback_bar.isVisible()
+    assert view.btn_play_pause.isEnabled()
+    assert view.slider_playback.isEnabled()
+    assert view.btn_playback_speed.text() == "1.0x"
+
+    # Cycle playback speeds cleanly
+    view.btn_playback_speed.click()
+    assert view.btn_playback_speed.text() == "1.25x"
+    view.btn_playback_speed.click()
+    assert view.btn_playback_speed.text() == "1.5x"
+    view.btn_playback_speed.click()
+    assert view.btn_playback_speed.text() == "2.0x"
+    view.btn_playback_speed.click()
+    assert view.btn_playback_speed.text() == "0.75x"
+    view.btn_playback_speed.click()
+    assert view.btn_playback_speed.text() == "1.0x"
+
+    # Switch to raw view and click the timestamp anchor on segment 1
+    view.btn_view_raw.click()
+    QApplication.processEvents()
+    block1 = view.txt_display.document().findBlockByNumber(1)
+    assert block1.isValid()
+    click_pos = QPointF(view.txt_display.cursorRect(QTextCursor(block1)).center())
+
+    activated_segments: list[int] = []
+    view.segment_activated.connect(activated_segments.append)
+
+    QApplication.sendEvent(
+        view.txt_display.viewport(),
+        QMouseEvent(QEvent.Type.MouseButtonPress, click_pos, click_pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
+    )
+    QApplication.sendEvent(
+        view.txt_display.viewport(),
+        QMouseEvent(QEvent.Type.MouseButtonRelease, click_pos, click_pos, Qt.LeftButton, Qt.NoButton, Qt.NoModifier),
+    )
+    QApplication.processEvents()
+
+    assert activated_segments[-1] == 1
+    assert view._active_segment_idx == 1
+    assert len(view.txt_display.extraSelections()) == 1
+    assert "00:02" in view.lbl_playback_time.text() or "00:01" in view.lbl_playback_time.text()
+
+    # Position updates sync active segment highlight
+    view.pause_playback()
+    view._on_player_position_changed(3500)
+    assert view._active_segment_idx == 2
+    assert len(view.txt_display.extraSelections()) == 1
+
+    # Polished mode clears segment highlight; switching back to Raw restores it
+    view.btn_view_polished.click()
+    assert view.txt_display.extraSelections() == []
+    view.btn_view_raw.click()
+    assert len(view.txt_display.extraSelections()) == 1
+
+    view.clear_view()
+    assert not view.playback_bar.isVisible()
+    assert view._player is None
+    assert view.txt_display.extraSelections() == []
+
+
+def test_transcript_view_slice_offset_and_headless_audio_fallback(qtbot, tmp_path):
+    wav_path = tmp_path / "trimmed.wav"
+    _write_test_wav(wav_path, duration_sec=6)
+
+    info = AudioInfo(path=wav_path, filename="trimmed.wav", duration=6.0, sample_rate=16000, channels=1)
+    track = AudioTrack(wav_path, info)
+    track.slice_config = SliceConfig(mode=SliceMode.RANGE, start_sec=2.0, end_sec=5.0)
+    track.status = TrackStatus.COMPLETED
+    track.result = TranscriptionResult(
+        segments=[
+            TranscriptSegment(start=0.0, end=1.5, text="Slice part one"),
+            TranscriptSegment(start=1.5, end=3.0, text="Slice part two"),
+        ],
+        full_text="Slice part one Slice part two",
+        audio_duration=3.0,
+        elapsed_time=0.4,
+    )
+
+    view = TranscriptView()
+    qtbot.addWidget(view)
+    view.show()
+    view.load_track(track)
+
+    assert view._slice_start_ms == 2000
+    assert view._slice_end_ms == 5000
+
+    # Seeking segment 1 (1.5s into slice) targets 3500ms in underlying file
+    view.seek_to_segment(1, autoplay=False)
+    assert view._active_segment_idx == 1
+    assert "00:02" in view.lbl_playback_time.text() or "00:01" in view.lbl_playback_time.text()
+
+    # Headless / missing audio hardware error during player init stays graceful
+    with patch("whisper_gui.ui.transcript_view.QMediaPlayer", side_effect=RuntimeError("No audio backend")):
+        view._load_track_audio(track)
+        assert view._player is None
+        assert view.playback_bar.isVisible()
+        assert not view.btn_play_pause.isEnabled()
+        assert not view.slider_playback.isEnabled()
+        # Segment seek still highlights text cleanly even without audio backend
+        view.seek_to_segment(0, autoplay=True)
+        assert view._active_segment_idx == 0
+
+    view.clear_view()
+
+
+def test_waveform_scrubber_and_trim_dialog(qtbot, tmp_path):
+    import math
+    import struct
+    import wave
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    wav_path = tmp_path / "wave.wav"
+    sr = 16000
+    frames = b"".join(
+        struct.pack("<h", int(12000 * math.sin(2 * math.pi * 220 * i / sr)))
+        for i in range(sr * 4)
+    )
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(frames)
+
+    info = AudioInfo(path=wav_path, filename="wave.wav", duration=4.0, sample_rate=sr, channels=1)
+    track = AudioTrack(wav_path, info)
+
+    dialog = TrimAudioDialog(track)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    QApplication.processEvents()
+
+    wf_widget = dialog.selector.waveform
+    qtbot.waitUntil(lambda: len(wf_widget._peaks) > 0, timeout=3000)
+    assert all(0.0 <= v <= 1.0 for v in wf_widget._peaks)
+
+    # Drag end handle inward to ~50% (2.0s)
+    inner = wf_widget._inner_rect()
+    end_x = wf_widget._sec_to_x(4.0, inner)
+    mid_x = wf_widget._sec_to_x(2.0, inner)
+    cy = inner.center().y()
+
+    QApplication.sendEvent(
+        wf_widget,
+        QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(end_x, cy), QPointF(end_x, cy), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
+    )
+    QApplication.sendEvent(
+        wf_widget,
+        QMouseEvent(QEvent.Type.MouseMove, QPointF(mid_x, cy), QPointF(mid_x, cy), Qt.NoButton, Qt.LeftButton, Qt.NoModifier),
+    )
+    QApplication.sendEvent(
+        wf_widget,
+        QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(mid_x, cy), QPointF(mid_x, cy), Qt.LeftButton, Qt.NoButton, Qt.NoModifier),
+    )
+    assert dialog.selector.radio_custom.isChecked()
+    assert 1.5 <= track.slice_config.effective_end(4.0) <= 2.5
+
+    # Click at ~1.0s seeks playhead
+    q1_x = wf_widget._sec_to_x(1.0, inner)
+    QApplication.sendEvent(
+        wf_widget,
+        QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(q1_x, cy), QPointF(q1_x, cy), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier),
+    )
+    QApplication.sendEvent(
+        wf_widget,
+        QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(q1_x, cy), QPointF(q1_x, cy), Qt.LeftButton, Qt.NoButton, Qt.NoModifier),
+    )
+    assert 0.7 <= wf_widget._playhead_sec <= 1.3
+    assert "00:00:01" in dialog.lbl_playback_pos.text()
+
+    # Verify clean QPainter render
+    pm = wf_widget.grab()
+    assert not pm.isNull() and pm.width() > 0 and pm.height() > 0
+
+    dialog.close()

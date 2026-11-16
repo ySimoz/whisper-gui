@@ -276,3 +276,116 @@ def slice_audio(
     finally:
         if process.poll() is None:
             terminate_process_cross_platform(process)
+
+
+def extract_waveform_peaks(
+    file_path: str | Path,
+    num_bins: int = 160,
+    should_cancel: Callable[[], bool] | None = None,
+) -> list[float]:
+    """Decode an audio file with PyAV and return normalized peak amplitudes in [0.0, 1.0].
+
+    Uses bounded-memory streaming chunk reduction so long recordings stay lightweight.
+    Returns an empty list if the file cannot be read, contains no audio stream, or is cancelled.
+    """
+    if num_bins <= 0:
+        return []
+
+    path = Path(file_path)
+    if not path.is_file():
+        return []
+
+    try:
+        import av
+        import numpy as np
+    except ImportError:
+        return []
+
+    max_buf = max(num_bins * 32, 2048)
+    block_size = 256
+    sub_peaks: list[float] = []
+    pending_max = 0.0
+    pending_count = 0
+
+    def _push_samples(flat: "np.ndarray") -> None:
+        nonlocal block_size, sub_peaks, pending_max, pending_count
+        if flat.size == 0:
+            return
+        abs_vals = np.abs(flat)
+        idx = 0
+        total = abs_vals.size
+
+        if pending_count > 0:
+            need = min(block_size - pending_count, total)
+            if need > 0:
+                pending_max = max(pending_max, float(abs_vals[:need].max()))
+                pending_count += need
+                idx += need
+            if pending_count >= block_size:
+                sub_peaks.append(pending_max)
+                pending_max = 0.0
+                pending_count = 0
+
+        rem = total - idx
+        if rem >= block_size:
+            full_blocks = rem // block_size
+            end = idx + full_blocks * block_size
+            reshaped = abs_vals[idx:end].reshape(full_blocks, block_size)
+            sub_peaks.extend(reshaped.max(axis=1).tolist())
+            idx = end
+
+        if idx < total:
+            pending_max = max(pending_max, float(abs_vals[idx:].max()))
+            pending_count = total - idx
+
+        while len(sub_peaks) >= max_buf:
+            even_len = (len(sub_peaks) // 2) * 2
+            arr = np.asarray(sub_peaks[:even_len], dtype=np.float32).reshape(-1, 2)
+            folded = arr.max(axis=1).tolist()
+            if even_len < len(sub_peaks):
+                folded.append(sub_peaks[-1])
+            sub_peaks = folded
+            block_size *= 2
+
+    try:
+        with av.open(str(path)) as container:
+            audio_stream = next((s for s in container.streams if s.type == "audio"), None)
+            if audio_stream is None:
+                return []
+
+            resampler = av.AudioResampler(format="flt", layout="mono")
+            for frame in container.decode(audio_stream):
+                if should_cancel is not None and should_cancel():
+                    return []
+                for resampled in resampler.resample(frame):
+                    arr = resampled.to_ndarray()
+                    _push_samples(arr.ravel())
+
+            for resampled in resampler.resample(None):
+                if should_cancel is not None and should_cancel():
+                    return []
+                arr = resampled.to_ndarray()
+                _push_samples(arr.ravel())
+    except Exception:
+        return []
+
+    if pending_count > 0:
+        sub_peaks.append(pending_max)
+
+    if not sub_peaks:
+        return []
+
+    peaks_arr = np.asarray(sub_peaks, dtype=np.float32)
+    global_max = float(peaks_arr.max())
+    if global_max <= 0.0:
+        return [0.0] * num_bins
+
+    if peaks_arr.size >= num_bins:
+        bins = [float(seg.max()) / global_max for seg in np.array_split(peaks_arr, num_bins)]
+    else:
+        src_x = np.linspace(0.0, 1.0, peaks_arr.size)
+        dst_x = np.linspace(0.0, 1.0, num_bins)
+        interp = np.interp(dst_x, src_x, peaks_arr) / global_max
+        bins = [float(v) for v in interp]
+
+    return [max(0.0, min(1.0, v)) for v in bins]
