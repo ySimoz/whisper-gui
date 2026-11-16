@@ -140,7 +140,7 @@ class SettingsPanel(QWidget):
         self._section_label_keys: list[tuple[QLabel, str]] = []
         self._field_label_keys: list[tuple[QLabel, str]] = []
         self._muted_labels: list[QLabel] = []
-        self._muted_checks: list[QCheckBox] = []
+        self._toggle_switches: list[QCheckBox] = []
         self._build_ui()
         self.apply_theme()
         self._update_disk_status()
@@ -157,6 +157,18 @@ class SettingsPanel(QWidget):
         self._field_label_keys.append((lbl, key))
         return lbl
 
+    def _add_field_group(self, parent_layout: QVBoxLayout, label_key: str, item: object) -> None:
+        """Group a field label and its control with a 4px inner gap."""
+        group = QVBoxLayout()
+        group.setContentsMargins(0, 0, 0, 0)
+        group.setSpacing(4)
+        group.addWidget(self._make_field_label(label_key))
+        if isinstance(item, QWidget):
+            group.addWidget(item)
+        else:
+            group.addLayout(item)
+        parent_layout.addLayout(group)
+
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -164,7 +176,6 @@ class SettingsPanel(QWidget):
 
         # Appearance
         layout.addWidget(self._make_section_label("settings.sec_appearance"))
-        layout.addWidget(self._make_field_label("settings.color_theme"))
 
         theme_row = QHBoxLayout()
         theme_row.setSpacing(8)
@@ -193,23 +204,20 @@ class SettingsPanel(QWidget):
         self.theme_btn_group.addButton(self.btn_theme_blush)
         theme_row.addWidget(self.btn_theme_blush, stretch=1)
 
-        layout.addLayout(theme_row)
+        self._add_field_group(layout, "settings.color_theme", theme_row)
 
-        layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("settings.app_language"))
         self.combo_app_language = QComboBox()
         self.combo_app_language.setView(QListView())
         for lang_code, lang_label in SUPPORTED_APP_LANGUAGES:
             self.combo_app_language.addItem(lang_label, lang_code)
         self.combo_app_language.setFixedHeight(36)
         self.set_selected_app_language(get_language())
-        layout.addWidget(self.combo_app_language)
+        self._add_field_group(layout, "settings.app_language", self.combo_app_language)
 
         layout.addSpacing(12)
 
         # Section 1: Speech Recognition
         layout.addWidget(self._make_section_label("settings.sec_recognition"))
-        layout.addWidget(self._make_field_label("settings.whisper_model"))
 
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
@@ -218,7 +226,6 @@ class SettingsPanel(QWidget):
             self.combo_model.addItem(tr(key) if key else label, model_id)
         self.combo_model.setCurrentIndex(0)
         self.combo_model.setFixedHeight(36)
-        layout.addWidget(self.combo_model)
 
         disk_row = QHBoxLayout()
         disk_row.setSpacing(12)
@@ -230,10 +237,13 @@ class SettingsPanel(QWidget):
         self.btn_delete_model.setFixedHeight(32)
         self.btn_delete_model.setEnabled(False)
         disk_row.addWidget(self.btn_delete_model)
-        layout.addLayout(disk_row)
 
-        layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("settings.transcription_language"))
+        model_group = QVBoxLayout()
+        model_group.setContentsMargins(0, 0, 0, 0)
+        model_group.setSpacing(8)
+        model_group.addWidget(self.combo_model)
+        model_group.addLayout(disk_row)
+        self._add_field_group(layout, "settings.whisper_model", model_group)
 
         self.combo_lang = QComboBox()
         self.combo_lang.setView(QListView())
@@ -242,13 +252,10 @@ class SettingsPanel(QWidget):
             self.combo_lang.addItem(tr(key) if key else label, code)
         self.combo_lang.setCurrentIndex(0)
         self.combo_lang.setFixedHeight(36)
-        layout.addWidget(self.combo_lang)
-
-        layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("settings.device_compute"))
+        self._add_field_group(layout, "settings.transcription_language", self.combo_lang)
 
         dev_row = QHBoxLayout()
-        dev_row.setSpacing(12)
+        dev_row.setSpacing(8)
         self.combo_device = QComboBox()
         self.combo_device.setView(QListView())
         if sys.platform == "darwin":
@@ -268,10 +275,7 @@ class SettingsPanel(QWidget):
         self.combo_compute.setCurrentIndex(0)
         self.combo_compute.setFixedHeight(36)
         dev_row.addWidget(self.combo_compute, stretch=2)
-        layout.addLayout(dev_row)
-
-        layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("settings.cpu_threads"))
+        self._add_field_group(layout, "settings.device_compute", dev_row)
 
         max_cpu = os.cpu_count() or 6
         default_threads = min(6, max_cpu)
@@ -281,23 +285,22 @@ class SettingsPanel(QWidget):
         self.spin_threads.setFixedHeight(36)
         self.spin_threads.setToolTip(tr("settings.threads_tooltip"))
         self.combo_threads = self.spin_threads
-        layout.addWidget(self.spin_threads)
-
-        layout.addSpacing(4)
+        self._add_field_group(layout, "settings.cpu_threads", self.spin_threads)
 
         self.chk_vad = ToggleSwitch(tr("settings.chk_vad"))
         self.chk_vad.setChecked(True)
+        self._toggle_switches.append(self.chk_vad)
         layout.addWidget(self.chk_vad)
 
         self.chk_timestamps = ToggleSwitch(tr("settings.chk_timestamps"))
         self.chk_timestamps.setChecked(True)
+        self._toggle_switches.append(self.chk_timestamps)
         layout.addWidget(self.chk_timestamps)
 
-        layout.addSpacing(16)
+        layout.addSpacing(12)
 
         # Section 2: Storage & Output
         layout.addWidget(self._make_section_label("settings.sec_storage"))
-        layout.addWidget(self._make_field_label("settings.output_folder"))
 
         out_row = QHBoxLayout()
         out_row.setSpacing(8)
@@ -314,10 +317,7 @@ class SettingsPanel(QWidget):
         self.btn_clear_dir = QPushButton(tr("settings.reset_btn"))
         self.btn_clear_dir.setFixedHeight(36)
         out_row.addWidget(self.btn_clear_dir)
-        layout.addLayout(out_row)
-
-        layout.addSpacing(4)
-        layout.addWidget(self._make_field_label("settings.export_format"))
+        self._add_field_group(layout, "settings.output_folder", out_row)
 
         self.combo_export_format = QComboBox()
         self.combo_export_format.setView(QListView())
@@ -325,18 +325,17 @@ class SettingsPanel(QWidget):
             self.combo_export_format.addItem(tr(fmt_key), fmt_code)
         self.combo_export_format.setCurrentIndex(0)
         self.combo_export_format.setFixedHeight(36)
-        layout.addWidget(self.combo_export_format)
+        self._add_field_group(layout, "settings.export_format", self.combo_export_format)
 
         self.chk_auto_export = ToggleSwitch(tr("settings.chk_auto_export"))
         self.chk_auto_export.setChecked(True)
-        self._muted_checks.append(self.chk_auto_export)
+        self._toggle_switches.append(self.chk_auto_export)
         layout.addWidget(self.chk_auto_export)
 
-        layout.addSpacing(16)
+        layout.addSpacing(12)
 
         # Section 3: Memory & Performance
         layout.addWidget(self._make_section_label("settings.sec_system"))
-        layout.addWidget(self._make_field_label("settings.model_memory"))
 
         ram_row = QHBoxLayout()
         ram_row.setSpacing(12)
@@ -347,10 +346,10 @@ class SettingsPanel(QWidget):
         self.btn_free_ram.setFixedHeight(32)
         self.btn_free_ram.setEnabled(False)
         ram_row.addWidget(self.btn_free_ram)
-        layout.addLayout(ram_row)
+        self._add_field_group(layout, "settings.model_memory", ram_row)
 
         self.chk_auto_unload = ToggleSwitch(tr("settings.chk_auto_unload"))
-        self._muted_checks.append(self.chk_auto_unload)
+        self._toggle_switches.append(self.chk_auto_unload)
         layout.addWidget(self.chk_auto_unload)
 
         update_row = QHBoxLayout()
@@ -537,7 +536,7 @@ class SettingsPanel(QWidget):
         sec_style = f"color: {p.text_main}; font-size: 16px; font-weight: 500; padding: 0;"
         field_style = f"color: {p.text_secondary}; font-size: 13px; font-weight: 500; padding: 0;"
         muted_style = f"color: {p.text_muted}; font-size: 12px;"
-        chk_muted_style = f"font-size: 12px; color: {p.text_muted}; background-color: transparent;"
+        toggle_style = f"font-size: 13px; color: {p.text_main}; background-color: transparent;"
 
         for lbl in self._section_labels:
             lbl.setStyleSheet(sec_style)
@@ -545,8 +544,8 @@ class SettingsPanel(QWidget):
             lbl.setStyleSheet(field_style)
         for lbl in self._muted_labels:
             lbl.setStyleSheet(muted_style)
-        for chk in self._muted_checks:
-            chk.setStyleSheet(chk_muted_style)
+        for chk in self._toggle_switches:
+            chk.setStyleSheet(toggle_style)
 
         ram_color = p.text_main if self._ram_loaded else p.text_muted
         ram_weight = " font-weight: 500;" if self._ram_loaded else ""

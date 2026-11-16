@@ -1012,3 +1012,151 @@ def test_toggle_switch_drag_and_tap(qtbot):
     send_mouse(QEvent.Type.MouseButtonRelease, 22.0, Qt.NoButton)
     assert sw.isChecked()
     qtbot.waitUntil(lambda: abs(sw._pos - 1.0) < 0.01, timeout=1000)
+
+
+def test_inline_edit_persists_across_tabs_track_switch_and_exports(qtbot, tmp_path):
+    from docx import Document
+    from whisper_gui.models import LLMConfig
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+
+    p1 = tmp_path / "one.wav"
+    p2 = tmp_path / "two.wav"
+    p1.touch()
+    p2.touch()
+
+    stale_docx = tmp_path / "one_transcript.docx"
+    stale_docx.write_bytes(b"stale")
+
+    t1 = AudioTrack(p1, AudioInfo(path=p1, filename="one.wav", duration=20.0))
+    t1.status = TrackStatus.COMPLETED
+    t1.progress_percent = 100
+    t1.status_message = "Completed (2.0x real-time)"
+    t1.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=4.0, text="Original segment one")],
+        full_text="Original segment one",
+        polished_text="Original polished one",
+        llm_model_used="deepseek-flash",
+        docx_path=stale_docx,
+    )
+
+    t2 = AudioTrack(p2, AudioInfo(path=p2, filename="two.wav", duration=15.0))
+    t2.status = TrackStatus.COMPLETED
+    t2.progress_percent = 100
+    t2.status_message = "Completed (3.0x real-time)"
+    t2.result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=3.0, text="Track two text")],
+        full_text="Track two text",
+    )
+
+    win.track_list._tracks.extend([t1, t2])
+    win.track_list._track_map[t1.id] = t1
+    win.track_list._track_map[t2.id] = t2
+    win.track_list._refresh_table()
+    win.track_list.track_count_changed.emit(2)
+
+    view = win.transcript_view
+    assert win._active_track is t1
+    assert view.txt_display.toPlainText() == "Original polished one"
+
+    # 1. Edit polished text, then switch to Raw and make a freeform edit
+    view.txt_display.setPlainText("Edited polished one")
+    assert t1.result.polished_text == "Edited polished one"
+    assert t1.result.docx_path is None  # invalidated stale export path
+
+    view.btn_view_raw.click()
+    assert "Original segment one" in view.txt_display.toPlainText()
+    view.txt_display.setPlainText("Freeform edited raw text")
+    assert t1.result.full_text == "Freeform edited raw text"
+    assert t1.result.raw_segments_stale is True
+
+    # 2. Toggle Polished -> Raw preserves both edits
+    view.btn_view_polished.click()
+    assert view.txt_display.toPlainText() == "Edited polished one"
+    view.btn_view_raw.click()
+    assert view.txt_display.toPlainText() == "Freeform edited raw text"
+
+    # 3. Switch to track 2 and back to track 1 -> edits and invalidation persist
+    win.track_list.table.selectRow(1)
+    assert win._active_track is t2
+    assert "Track two text" in view.txt_display.toPlainText()
+
+    win.track_list.table.selectRow(0)
+    assert win._active_track is t1
+    assert view.txt_display.toPlainText() == "Edited polished one"
+    assert "docx" not in view._exported_paths
+
+    view.btn_view_raw.click()
+    assert view.txt_display.toPlainText() == "Freeform edited raw text"
+
+    # 4. Exporting regenerates docx/txt/srt with edited content (never stale segments)
+    win.llm_panel.chk_raw_appendix.setChecked(True)
+    with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
+        view._on_export_format("docx")
+        view._on_export_format("txt")
+        view._on_export_format("srt")
+
+    doc = Document(str(stale_docx))
+    doc_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Edited polished one" in doc_text
+    assert "Freeform edited raw text" in doc_text
+    assert "Original segment one" not in doc_text
+
+    txt_content = (tmp_path / "one_transcript.txt").read_text(encoding="utf-8")
+    assert "Edited polished one" in txt_content
+    assert "Freeform edited raw text" in txt_content
+    assert "Original segment one" not in txt_content
+
+    srt_content = (tmp_path / "one_transcript.srt").read_text(encoding="utf-8")
+    assert "Freeform edited raw text" in srt_content
+    assert "Original segment one" not in srt_content
+
+
+def test_worker_progress_telemetry_updates_status_and_metrics(qtbot, tmp_path):
+    win = MainWindow()
+    qtbot.addWidget(win)
+
+    p1 = tmp_path / "telemetry.wav"
+    p1.touch()
+    t1 = AudioTrack(p1, AudioInfo(path=p1, filename="telemetry.wav", duration=60.0))
+    win.track_list._tracks.append(t1)
+    win.track_list._track_map[t1.id] = t1
+    win.track_list._refresh_table()
+    win._set_active_track(t1)
+
+    metrics = "00:30 / 01:00 (50%) · 2.5x · ETA 00:12"
+    win._on_worker_progress_updated(t1.id, 50, metrics)
+
+    assert t1.progress_percent == 50
+    assert win.transcript_view.progress_bar.value() == 50
+    assert win.transcript_view.lbl_metrics.text() == metrics
+    assert "telemetry.wav" in win.status_bar.currentMessage()
+    assert metrics in win.status_bar.currentMessage()
+
+
+def test_range_selector_theme_and_trim_dialog_italian_no_clipping(qtbot, tmp_path):
+    from whisper_gui.i18n import get_language, set_language
+    from whisper_gui.ui.theme import get_theme_name, set_theme
+
+    prev_lang = get_language()
+    prev_theme = get_theme_name()
+    try:
+        set_language("it")
+        set_theme("blush")
+
+        p1 = tmp_path / "clip.wav"
+        p1.touch()
+        track = AudioTrack(p1, AudioInfo(path=p1, filename="clip.wav", duration=185.0))
+
+        dlg = TrimAudioDialog(track)
+        qtbot.addWidget(dlg)
+        dlg.show()
+        QApplication.processEvents()
+
+        assert "#FAE6EE" in dlg.selector.top_bar.styleSheet()
+        assert dlg.selector.radio_custom.width() >= dlg.selector.radio_custom.sizeHint().width()
+        assert dlg.selector.lbl_selected_length.width() >= dlg.selector.lbl_selected_length.sizeHint().width()
+    finally:
+        set_language(prev_lang)
+        set_theme(prev_theme)

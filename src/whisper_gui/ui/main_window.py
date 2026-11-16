@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
 
 from whisper_gui import __version__
 from whisper_gui.audio_utils import check_ffmpeg_installed
-from whisper_gui.i18n import get_language, set_language, tr
+from whisper_gui.i18n import display_track_status, get_language, set_language, tr
 from whisper_gui.models import AudioTrack, TrackStatus, TranscriptSegment, TranscriptionResult
 from whisper_gui.platform_utils import get_app_icon, get_asset_path
 from whisper_gui.transcriber import Transcriber
@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
 
         # Left side: Lateral Drawer Toggle + Title + Model Badge
         self.btn_toggle_drawer = QPushButton(tr("main.tracks_button", count=0))
+        self.btn_toggle_drawer.setFixedHeight(32)
         self.btn_toggle_drawer.setIconSize(QSize(16, 16))
         self.btn_toggle_drawer.setCheckable(True)
         self.btn_toggle_drawer.clicked.connect(self._toggle_tracks_drawer)
@@ -279,8 +280,9 @@ class MainWindow(QMainWindow):
         header_layout.addStretch()
 
         self.btn_open_settings = QPushButton(tr("main.settings_button"))
+        self.btn_open_settings.setFixedHeight(32)
         self.btn_open_settings.setIconSize(QSize(16, 16))
-        self.btn_open_settings.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
+        self.btn_open_settings.setStyleSheet("padding: 4px 12px; font-size: 12px; font-weight: 500;")
         self.btn_open_settings.clicked.connect(self._open_settings_page)
         header_layout.addWidget(self.btn_open_settings)
 
@@ -293,8 +295,8 @@ class MainWindow(QMainWindow):
         # 2a. Lateral Tracks Drawer
         self.tracks_drawer = QFrame()
         self.tracks_drawer.setObjectName("tracks_drawer")
-        self.tracks_drawer.setMinimumWidth(320)
-        self.tracks_drawer.setMaximumWidth(460)
+        self.tracks_drawer.setMinimumWidth(348)
+        self.tracks_drawer.setMaximumWidth(480)
         self.queue_drawer = self.tracks_drawer  # backward compatibility alias
 
         drawer_vbox = QVBoxLayout(self.tracks_drawer)
@@ -315,7 +317,7 @@ class MainWindow(QMainWindow):
         self.btn_close_drawer = QPushButton()
         self.btn_close_drawer.setObjectName("btn_close_drawer")
         self.btn_close_drawer.setIconSize(QSize(14, 14))
-        self.btn_close_drawer.setFixedSize(28, 28)
+        self.btn_close_drawer.setFixedSize(32, 32)
         self.btn_close_drawer.setToolTip(tr("main.drawer_close_tooltip"))
         self.btn_close_drawer.setStyleSheet("padding: 0px;")
         self.btn_close_drawer.clicked.connect(lambda: self.btn_toggle_drawer.setChecked(False) or self.tracks_drawer.hide())
@@ -351,16 +353,16 @@ class MainWindow(QMainWindow):
         """)
         drop_layout = QVBoxLayout(self.dropzone_card)
         drop_layout.setContentsMargins(24, 32, 24, 32)
-        drop_layout.setSpacing(12)
+        drop_layout.setSpacing(8)
         drop_layout.setAlignment(Qt.AlignCenter)
-
-        self.lbl_drop_title = QLabel(tr("main.drop_title"))
-        self.lbl_drop_title.setAlignment(Qt.AlignCenter)
-        drop_layout.addWidget(self.lbl_drop_title)
 
         self.lbl_drop_icon = QLabel()
         self.lbl_drop_icon.setAlignment(Qt.AlignCenter)
         drop_layout.addWidget(self.lbl_drop_icon)
+
+        self.lbl_drop_title = QLabel(tr("main.drop_title"))
+        self.lbl_drop_title.setAlignment(Qt.AlignCenter)
+        drop_layout.addWidget(self.lbl_drop_title)
 
         center_layout.addWidget(self.dropzone_card)
 
@@ -392,8 +394,9 @@ class MainWindow(QMainWindow):
         actions_row.setSpacing(12)
 
         self.btn_open_trim = QPushButton(tr("main.trim_button"))
+        self.btn_open_trim.setFixedHeight(32)
         self.btn_open_trim.setIconSize(QSize(16, 16))
-        self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 6px 12px;")
+        self.btn_open_trim.setStyleSheet("font-weight: 500; padding: 4px 12px;")
         self.btn_open_trim.clicked.connect(self._open_trim_dialog)
         actions_row.addWidget(self.btn_open_trim)
 
@@ -405,8 +408,9 @@ class MainWindow(QMainWindow):
         actions_row.addStretch()
 
         self.btn_active_drawer = QPushButton(tr("main.view_all_tracks"))
+        self.btn_active_drawer.setFixedHeight(32)
         self.btn_active_drawer.setIconSize(QSize(16, 16))
-        self.btn_active_drawer.setStyleSheet("padding: 6px 12px; font-size: 12px;")
+        self.btn_active_drawer.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         self.btn_active_drawer.clicked.connect(self._open_tracks_drawer)
         actions_row.addWidget(self.btn_active_drawer)
 
@@ -503,7 +507,7 @@ class MainWindow(QMainWindow):
         self.btn_toggle_drawer.setIcon(load_ui_icon("tracks"))
         self.btn_toggle_drawer.setStyleSheet(f"""
             QPushButton {{
-                padding: 6px 12px;
+                padding: 4px 12px;
                 font-size: 12px;
                 font-weight: 500;
             }}
@@ -532,7 +536,7 @@ class MainWindow(QMainWindow):
         self.lbl_drawer_count.setStyleSheet(f"color: {p.text_muted};")
         self.btn_close_drawer.setIcon(load_ui_icon("close"))
 
-        self.lbl_drop_title.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {p.text_main};")
+        self.lbl_drop_title.setStyleSheet(f"font-size: 14px; font-weight: 500; color: {p.text_main};")
         drop_pixmap = load_tinted_pixmap("upload_icon.svg", 48, p.text_muted)
         if not drop_pixmap.isNull():
             self.lbl_drop_icon.setPixmap(drop_pixmap)
@@ -549,7 +553,7 @@ class MainWindow(QMainWindow):
                 background: transparent;
             }}
         """)
-        self.lbl_active_name.setStyleSheet(f"font-size: 15px; font-weight: 500; color: {p.text_main};")
+        self.lbl_active_name.setStyleSheet(f"font-size: 14px; font-weight: 500; color: {p.text_main};")
         self.lbl_active_meta.setStyleSheet(f"color: {p.text_muted};")
         self.lbl_active_slice.setStyleSheet(f"color: {p.text_muted};")
         self.btn_open_trim.setIcon(load_ui_icon("scissors"))
@@ -598,6 +602,7 @@ class MainWindow(QMainWindow):
 
         self.track_list.apply_theme()
         self.transcript_view.apply_theme()
+        self.range_selector.apply_theme()
         self.settings_page.apply_theme()
         self.settings_panel.apply_theme()
         self.llm_panel.apply_theme()
@@ -671,7 +676,7 @@ class MainWindow(QMainWindow):
         self.tracks_drawer.setVisible(is_checked)
         if is_checked:
             total_w = self.main_splitter.width() or 1000
-            self.main_splitter.setSizes([350, max(600, total_w - 350)])
+            self.main_splitter.setSizes([360, max(560, total_w - 360)])
 
     def _toggle_queue_drawer(self) -> None:
         self._toggle_tracks_drawer()
@@ -680,7 +685,7 @@ class MainWindow(QMainWindow):
         self.btn_toggle_drawer.setChecked(True)
         self.tracks_drawer.show()
         total_w = self.main_splitter.width() or 1000
-        self.main_splitter.setSizes([350, max(600, total_w - 350)])
+        self.main_splitter.setSizes([360, max(560, total_w - 360)])
 
     def _open_settings_page(self) -> None:
         self.settings_panel._update_disk_status()
@@ -717,7 +722,7 @@ class MainWindow(QMainWindow):
             self.btn_toggle_drawer.setChecked(True)
             self.tracks_drawer.show()
             total_w = self.main_splitter.width() or 1000
-            self.main_splitter.setSizes([350, max(600, total_w - 350)])
+            self.main_splitter.setSizes([360, max(560, total_w - 360)])
         self._sync_queue_display()
 
     def _update_start_button_text(self) -> None:
@@ -953,8 +958,17 @@ class MainWindow(QMainWindow):
             self.transcript_view.append_segment(segment)
 
     def _on_worker_progress_updated(self, track_id: str, percent: int, time_str: str) -> None:
+        track = self.track_list.get_track(track_id)
+        if track is not None:
+            track.progress_percent = percent
         if self._active_track is None or self._active_track.id == track_id:
             self.transcript_view.set_progress(percent, time_str)
+            if track is not None:
+                self.status_bar.showMessage(
+                    tr("main.status_progress", filename=track.info.filename, metrics=time_str)
+                )
+            else:
+                self.status_bar.showMessage(time_str)
 
     def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
         track = self.track_list.get_track(track_id)
@@ -971,6 +985,8 @@ class MainWindow(QMainWindow):
                 self.transcript_view.set_completed_track(
                     track, result, self.settings_panel.get_config()
                 )
+                status_text = display_track_status(track.status_message, track.status)
+                self.transcript_view.set_progress(100, status_text)
             elif result.docx_path:
                 self.transcript_view.set_completed_docx(result.docx_path)
             else:
@@ -1029,7 +1045,7 @@ class MainWindow(QMainWindow):
             return
 
         raw_text = (track.result.full_text or "").strip()
-        if not raw_text and track.result.segments:
+        if not raw_text and not track.result.raw_segments_stale and track.result.segments:
             raw_text = " ".join(s.text for s in track.result.segments if s.text).strip()
         if not raw_text:
             return

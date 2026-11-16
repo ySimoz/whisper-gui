@@ -51,26 +51,14 @@ class RangeSelectorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Two-row control card: Mode + duration on row 1, Start/End timecodes on row 2
-        p = get_palette()
-        top_bar = QFrame()
-        top_bar.setObjectName("range_top_bar")
-        top_bar.setStyleSheet(f"""
-            #range_top_bar {{
-                background-color: {p.bg_input};
-                border: 1px solid {p.border};
-                border-radius: 8px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-        top_vbox = QVBoxLayout(top_bar)
+        self.top_bar = QFrame()
+        self.top_bar.setObjectName("range_top_bar")
+        top_vbox = QVBoxLayout(self.top_bar)
         top_vbox.setContentsMargins(12, 12, 12, 12)
         top_vbox.setSpacing(8)
 
         mode_row = QHBoxLayout()
-        mode_row.setSpacing(16)
+        mode_row.setSpacing(12)
 
         self.btn_group_mode = QButtonGroup(self)
         self.radio_full = QRadioButton(tr("range.full_audio"))
@@ -86,33 +74,32 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_selected_length = QLabel(tr("range.selected_zero"))
         self.lbl_selected_length.setFont(fixed_mono_font(12))
-        self.lbl_selected_length.setStyleSheet(f"color: {p.text_main};")
         mode_row.addWidget(self.lbl_selected_length)
         top_vbox.addLayout(mode_row)
 
         time_row = QHBoxLayout()
-        time_row.setSpacing(12)
+        time_row.setSpacing(8)
 
         self.lbl_start = QLabel(tr("range.start"))
-        self.lbl_start.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         time_row.addWidget(self.lbl_start)
 
         self.time_start = QTimeEdit()
         self.time_start.setDisplayFormat("HH:mm:ss")
         self.time_start.setTime(QTime(0, 0, 0))
+        self.time_start.setFixedHeight(32)
         self.time_start.setMinimumWidth(116)
         self.time_start.setFont(fixed_mono_font(12))
         time_row.addWidget(self.time_start)
 
-        time_row.addSpacing(4)
+        time_row.addSpacing(8)
 
         self.lbl_end = QLabel(tr("range.end"))
-        self.lbl_end.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         time_row.addWidget(self.lbl_end)
 
         self.time_end = QTimeEdit()
         self.time_end.setDisplayFormat("HH:mm:ss")
         self.time_end.setTime(QTime(0, 0, 0))
+        self.time_end.setFixedHeight(32)
         self.time_end.setMinimumWidth(116)
         self.time_end.setFont(fixed_mono_font(12))
         time_row.addWidget(self.time_end)
@@ -120,7 +107,7 @@ class RangeSelectorWidget(QWidget):
         time_row.addStretch()
         top_vbox.addLayout(time_row)
 
-        layout.addWidget(top_bar)
+        layout.addWidget(self.top_bar)
 
         # Slider + position info
         slider_layout = QVBoxLayout()
@@ -133,7 +120,6 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_slider_info = QLabel(tr("range.slider_initial"))
         self.lbl_slider_info.setFont(fixed_mono_font(11))
-        self.lbl_slider_info.setStyleSheet(f"color: {p.text_muted};")
         slider_layout.addWidget(self.lbl_slider_info)
 
         layout.addLayout(slider_layout)
@@ -145,7 +131,27 @@ class RangeSelectorWidget(QWidget):
         self.time_end.timeChanged.connect(self._on_time_changed)
         self.slider_range.valueChanged.connect(self._on_slider_changed)
 
+        self.apply_theme()
         self._update_container_enabled_state()
+
+    def apply_theme(self) -> None:
+        """Apply the active palette to the range selector controls."""
+        p = get_palette()
+        self.top_bar.setStyleSheet(f"""
+            #range_top_bar {{
+                background-color: {p.bg_input};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.lbl_selected_length.setStyleSheet(f"color: {p.text_main};")
+        self.lbl_start.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        self.lbl_end.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
+        self.lbl_slider_info.setStyleSheet(f"color: {p.text_muted};")
 
     def retranslate_ui(self) -> None:
         """Update all visible strings to the active application language."""
@@ -312,8 +318,8 @@ class TrimAudioDialog(QDialog):
         self._duration_ms: int = int(round(max(0.0, track.info.duration) * 1000))
 
         self.setWindowTitle(tr("trim.window_title", filename=track.info.filename))
-        self.setMinimumWidth(520)
-        self.resize(560, 300)
+        self.setMinimumWidth(656)
+        self.resize(680, 320)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -347,12 +353,14 @@ class TrimAudioDialog(QDialog):
         preview_layout.setSpacing(8)
 
         self.btn_play_pause = QPushButton(tr("trim.play"))
+        self.btn_play_pause.setFixedHeight(32)
         self.btn_play_pause.setIcon(load_ui_icon("play"))
         self.btn_play_pause.setIconSize(QSize(14, 14))
         self.btn_play_pause.clicked.connect(self._on_play_pause)
         preview_layout.addWidget(self.btn_play_pause)
 
         self.btn_play_selection = QPushButton(tr("trim.preview_range"))
+        self.btn_play_selection.setFixedHeight(32)
         self.btn_play_selection.setIcon(load_ui_icon("play"))
         self.btn_play_selection.setIconSize(QSize(14, 14))
         self.btn_play_selection.clicked.connect(self._on_play_selection)
@@ -368,8 +376,12 @@ class TrimAudioDialog(QDialog):
         layout.addWidget(preview_bar)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.button(QDialogButtonBox.Ok).setText(tr("trim.apply"))
-        btn_box.button(QDialogButtonBox.Cancel).setText(tr("trim.cancel"))
+        ok_btn = btn_box.button(QDialogButtonBox.Ok)
+        cancel_btn = btn_box.button(QDialogButtonBox.Cancel)
+        ok_btn.setText(tr("trim.apply"))
+        ok_btn.setFixedHeight(32)
+        cancel_btn.setText(tr("trim.cancel"))
+        cancel_btn.setFixedHeight(32)
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)

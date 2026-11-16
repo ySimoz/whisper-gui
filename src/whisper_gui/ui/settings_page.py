@@ -72,8 +72,9 @@ class SettingsPageWidget(QWidget):
         nav_layout.setAlignment(Qt.AlignVCenter)
 
         self.btn_back = QPushButton(tr("settings_page.back"))
+        self.btn_back.setFixedHeight(32)
         self.btn_back.setIconSize(QSize(16, 16))
-        self.btn_back.setStyleSheet("padding: 6px 12px; font-size: 12px; font-weight: 500;")
+        self.btn_back.setStyleSheet("padding: 4px 12px; font-size: 12px; font-weight: 500;")
         self.btn_back.clicked.connect(self.back_requested.emit)
         nav_layout.addWidget(self.btn_back)
 
@@ -94,7 +95,7 @@ class SettingsPageWidget(QWidget):
         center_host.setObjectName("settings_center_host")
         center_host.setStyleSheet("#settings_center_host { background: transparent; }")
         center_host_layout = QHBoxLayout(center_host)
-        center_host_layout.setContentsMargins(0, 8, 0, 20)
+        center_host_layout.setContentsMargins(16, 12, 16, 24)
         center_host_layout.setAlignment(Qt.AlignHCenter)
 
         content = QWidget()
@@ -103,13 +104,13 @@ class SettingsPageWidget(QWidget):
         content.setStyleSheet("#settings_content { background: transparent; }")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(20)
+        content_layout.setSpacing(16)
 
         # Section 1: Speech Recognition & Storage/Memory
         self.sec1_frame = QFrame()
         self.sec1_frame.setObjectName("sec1_card")
         sec1_layout = QVBoxLayout(self.sec1_frame)
-        sec1_layout.setContentsMargins(24, 20, 24, 20)
+        sec1_layout.setContentsMargins(24, 24, 24, 24)
         sec1_layout.addWidget(self.settings_panel)
         content_layout.addWidget(self.sec1_frame)
 
@@ -117,7 +118,7 @@ class SettingsPageWidget(QWidget):
         self.sec2_frame = QFrame()
         self.sec2_frame.setObjectName("sec2_card")
         sec2_layout = QVBoxLayout(self.sec2_frame)
-        sec2_layout.setContentsMargins(24, 20, 24, 20)
+        sec2_layout.setContentsMargins(24, 24, 24, 24)
         sec2_layout.addWidget(self.llm_panel)
         content_layout.addWidget(self.sec2_frame)
 
