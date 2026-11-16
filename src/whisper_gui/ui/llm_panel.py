@@ -48,8 +48,8 @@ class InstructionEditorDialog(QDialog):
         self.modified_text = current_text
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
 
         self.editor = QPlainTextEdit()
         self.editor.setPlainText(current_text)
@@ -102,6 +102,18 @@ class LLMPanel(QWidget):
         self._field_label_keys.append((lbl, key))
         return lbl
 
+    def _add_field_group(self, parent_layout: QVBoxLayout, label_key: str, item: object) -> None:
+        """Group a field label and its control with a 4px inner gap."""
+        group = QVBoxLayout()
+        group.setContentsMargins(0, 0, 0, 0)
+        group.setSpacing(4)
+        group.addWidget(self._make_field_label(label_key))
+        if isinstance(item, QWidget):
+            group.addWidget(item)
+        else:
+            group.addLayout(item)
+        parent_layout.addLayout(group)
+
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -125,8 +137,6 @@ class LLMPanel(QWidget):
         ctrl_layout.setSpacing(12)
 
         # Provider
-        ctrl_layout.addWidget(self._make_field_label("llm.provider"))
-
         self.combo_provider = QComboBox()
         self.combo_provider.setView(QListView())
         for provider_id in ("DeepSeek", "Anthropic (Claude)", "OpenAI", "Groq", "Custom"):
@@ -134,30 +144,24 @@ class LLMPanel(QWidget):
             self.combo_provider.addItem(label, provider_id)
         self.combo_provider.setFixedHeight(36)
         self.combo_provider.currentIndexChanged.connect(self._on_provider_index_changed)
-        ctrl_layout.addWidget(self.combo_provider)
+        self._add_field_group(ctrl_layout, "llm.provider", self.combo_provider)
 
         # Model Name
-        ctrl_layout.addWidget(self._make_field_label("llm.model_name"))
-
         self.combo_model = QComboBox()
         self.combo_model.setView(QListView())
         self.combo_model.setEditable(True)
         self.combo_model.setFixedHeight(36)
         self.combo_model.currentTextChanged.connect(self._on_setting_changed)
-        ctrl_layout.addWidget(self.combo_model)
+        self._add_field_group(ctrl_layout, "llm.model_name", self.combo_model)
 
         # Base URL
-        ctrl_layout.addWidget(self._make_field_label("llm.base_url"))
-
         self.txt_base_url = QLineEdit()
         self.txt_base_url.setFixedHeight(36)
         self.txt_base_url.setPlaceholderText("https://api.deepseek.com/v1")
         self.txt_base_url.textChanged.connect(self._on_setting_changed)
-        ctrl_layout.addWidget(self.txt_base_url)
+        self._add_field_group(ctrl_layout, "llm.base_url", self.txt_base_url)
 
         # API Key
-        ctrl_layout.addWidget(self._make_field_label("llm.api_key"))
-
         key_box = QHBoxLayout()
         key_box.setSpacing(8)
         self.txt_api_key = QLineEdit()
@@ -177,18 +181,20 @@ class LLMPanel(QWidget):
         self.btn_test_conn.setFixedHeight(36)
         self.btn_test_conn.clicked.connect(self._test_connection)
         key_box.addWidget(self.btn_test_conn)
-        ctrl_layout.addLayout(key_box)
 
         self.lbl_conn_status = QLabel("")
         self.lbl_conn_status.setWordWrap(True)
         self.lbl_conn_status.setStyleSheet("font-size: 12px;")
-        ctrl_layout.addWidget(self.lbl_conn_status)
+
+        key_group = QVBoxLayout()
+        key_group.setContentsMargins(0, 0, 0, 0)
+        key_group.setSpacing(4)
+        key_group.addLayout(key_box)
+        key_group.addWidget(self.lbl_conn_status)
+        self._add_field_group(ctrl_layout, "llm.api_key", key_group)
 
         # Prompt Instructions
-        ctrl_layout.addWidget(self._make_field_label("llm.custom_prompt"))
-
         self.lbl_active_prompt = QLabel(tr("llm.active_default"))
-        ctrl_layout.addWidget(self.lbl_active_prompt)
 
         prompt_btn_row = QHBoxLayout()
         prompt_btn_row.setSpacing(8)
@@ -209,7 +215,13 @@ class LLMPanel(QWidget):
         prompt_btn_row.addWidget(self.btn_reset_default)
 
         prompt_btn_row.addStretch()
-        ctrl_layout.addLayout(prompt_btn_row)
+
+        prompt_group = QVBoxLayout()
+        prompt_group.setContentsMargins(0, 0, 0, 0)
+        prompt_group.setSpacing(8)
+        prompt_group.addWidget(self.lbl_active_prompt)
+        prompt_group.addLayout(prompt_btn_row)
+        self._add_field_group(ctrl_layout, "llm.custom_prompt", prompt_group)
 
         self.chk_raw_appendix = ToggleSwitch(tr("llm.chk_raw_appendix"))
         self.chk_raw_appendix.setChecked(True)
@@ -233,7 +245,7 @@ class LLMPanel(QWidget):
         )
         self.lbl_active_prompt.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         self.chk_raw_appendix.setStyleSheet(
-            f"color: {p.text_muted}; font-size: 12px; background-color: transparent;"
+            f"color: {p.text_main}; font-size: 13px; background-color: transparent;"
         )
         if self._conn_state == "ok":
             self.lbl_conn_status.setStyleSheet(f"color: {p.positive}; font-weight: 500; font-size: 12px;")
@@ -291,21 +303,8 @@ class LLMPanel(QWidget):
         self.config_changed.emit()
 
     def _update_enabled_states(self) -> None:
-        # Crucial UX fix: All configuration inputs remain active so the user can
-        # paste their API key, select models, and test connections at any time.
-        enabled = self.chk_enable.isChecked()
-        p = get_palette()
-        if hasattr(self, "lbl_workflow_status"):
-            if enabled:
-                self.lbl_workflow_status.setText(tr("llm.workflow_enabled"))
-                self.lbl_workflow_status.setStyleSheet(
-                    f"color: {p.secondary}; font-weight: bold; font-size: 11px;"
-                )
-            else:
-                self.lbl_workflow_status.setText(tr("llm.workflow_disabled"))
-                self.lbl_workflow_status.setStyleSheet(
-                    f"color: {p.text_muted}; font-size: 11px;"
-                )
+        # Configuration inputs remain active so the user can configure & test anytime.
+        return
 
     def _on_provider_changed(self, provider: str) -> None:
         preset = PROVIDER_PRESETS.get(provider, PROVIDER_PRESETS["DeepSeek"])
@@ -343,7 +342,7 @@ class LLMPanel(QWidget):
         cfg = self.get_config()
         p = get_palette()
         self._conn_state = None
-        self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 11px;")
+        self.lbl_conn_status.setStyleSheet(f"color: {p.text_muted}; font-size: 12px;")
         self.lbl_conn_status.setText(tr("llm.connecting"))
         self.btn_test_conn.setEnabled(False)
 

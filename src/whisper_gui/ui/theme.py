@@ -233,7 +233,7 @@ class ToggleSwitch(QCheckBox):
 
     _TRACK_W = 36
     _TRACK_H = 20
-    _GAP = 10
+    _GAP = 8
     _KNOB_D = 16.0
     _TRAVEL_PX = 16.0  # _TRACK_W - _KNOB_D - 2 * 2px inset
     _DRAG_THRESHOLD = 3.0
@@ -525,10 +525,10 @@ QPushButton {{
     color: {t.text_main};
     border: 1px solid {t.border_light};
     border-radius: 8px;
-    padding: 5px 12px;
+    padding: 4px 12px;
     font-weight: 500;
     font-size: 12px;
-    min-height: 18px;
+    min-height: 22px;
 }}
 
 QPushButton:hover {{
@@ -596,10 +596,9 @@ QTableWidget, QTableView {{
 QHeaderView::section {{
     background-color: {t.bg_surface};
     color: {t.text_muted};
-    padding: 6px 8px;
+    padding: 6px 12px;
     border: none;
     border-bottom: 1px solid {t.border};
-    border-right: 1px solid {t.border};
     font-weight: 500;
     font-size: 11px;
 }}
@@ -697,19 +696,19 @@ QRadioButton::indicator:disabled {{
 
 /* Progress Bar */
 QProgressBar {{
-    background-color: {t.bg_input};
-    border: 1px solid {t.border};
-    border-radius: 4px;
+    background-color: {t.bg_raised};
+    border: none;
+    border-radius: 2px;
     text-align: center;
     color: {t.text_main};
     font-weight: 500;
     font-size: 11px;
-    height: 8px;
+    height: 4px;
 }}
 
 QProgressBar::chunk {{
     background-color: {t.primary};
-    border-radius: 3px;
+    border-radius: 2px;
 }}
 
 /* Sliders */
@@ -791,6 +790,15 @@ QScrollBar::handle:horizontal:hover {{
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
+}}
+
+/* Status Bar */
+QStatusBar {{
+    background-color: {t.bg_window};
+    color: {t.text_muted};
+    border-top: 1px solid {t.border};
+    font-size: 12px;
+    padding: 2px 12px;
 }}
 """
 

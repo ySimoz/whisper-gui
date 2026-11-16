@@ -196,7 +196,7 @@ def export_transcript_to_docx(
         # Optional Raw Appendix
         llm_cfg = getattr(transcription_config, "llm_config", None)
         include_raw = llm_cfg.include_raw_in_docx if llm_cfg else True
-        if include_raw and result.segments:
+        if include_raw and (result.segments or result.full_text.strip()):
             appendix_heading = doc.add_heading(level=2)
             appendix_heading.paragraph_format.space_before = Pt(24)
             appendix_heading.paragraph_format.space_after = Pt(10)
@@ -204,26 +204,31 @@ def export_transcript_to_docx(
             app_run.font.size = Pt(13)
             app_run.font.color.rgb = RGBColor(108, 117, 125)
 
-            for seg in result.segments:
-                seg_text = seg.text.strip()
-                if not seg_text:
-                    continue
-                p = doc.add_paragraph()
+            if result.segments:
+                for seg in result.segments:
+                    seg_text = seg.text.strip()
+                    if not seg_text:
+                        continue
+                    p = doc.add_paragraph()
+                    p.paragraph_format.line_spacing = 1.15
+                    p.paragraph_format.space_after = Pt(4)
+
+                    actual_start = start_sec + seg.start
+                    actual_end = start_sec + seg.end
+                    ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
+
+                    ts_run = p.add_run(ts_str)
+                    ts_run.font.bold = True
+                    ts_run.font.size = Pt(9.0)
+                    ts_run.font.color.rgb = RGBColor(140, 150, 160)
+
+                    text_run = p.add_run(seg_text)
+                    text_run.font.size = Pt(10)
+                    text_run.font.color.rgb = RGBColor(60, 65, 70)
+            else:
+                p = doc.add_paragraph(result.full_text.strip())
                 p.paragraph_format.line_spacing = 1.15
-                p.paragraph_format.space_after = Pt(4)
-
-                actual_start = start_sec + seg.start
-                actual_end = start_sec + seg.end
-                ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
-
-                ts_run = p.add_run(ts_str)
-                ts_run.font.bold = True
-                ts_run.font.size = Pt(9.0)
-                ts_run.font.color.rgb = RGBColor(140, 150, 160)
-
-                text_run = p.add_run(seg_text)
-                text_run.font.size = Pt(10)
-                text_run.font.color.rgb = RGBColor(60, 65, 70)
+                p.paragraph_format.space_after = Pt(8)
 
     else:
         # Standard Raw Transcript

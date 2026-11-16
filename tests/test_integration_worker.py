@@ -272,3 +272,59 @@ def test_polish_worker_cancelled(qtbot, tmp_path):
         worker.start()
     worker.wait(2000)
     assert cancelled_called == [True]
+
+
+def test_worker_emits_speed_and_eta_progress(qtbot, test_audio_file: Path, tmp_path: Path):
+    from whisper_gui.i18n import get_language, set_language, tr
+
+    info = get_audio_info(test_audio_file)
+    track = AudioTrack(test_audio_file, info)
+    cfg = TranscriptionConfig(model_name="tiny", auto_export=False)
+    transcriber = Transcriber()
+    worker = TranscriptionWorker(tracks=[track], transcription_config=cfg, transcriber=transcriber)
+
+    progress_events: list[tuple[str, int, str]] = []
+    worker.progress_updated.connect(lambda tid, pct, msg: progress_events.append((tid, pct, msg)))
+
+    def fake_transcribe(
+        audio_file,
+        config,
+        slice_duration,
+        on_segment=None,
+        on_progress=None,
+        on_status=None,
+        should_stop=None,
+    ):
+        if on_status:
+            on_status(tr("transcriber.transcribing"))
+        time.sleep(0.3)
+        if on_progress:
+            on_progress(1.5, 3.0)
+            on_progress(3.0, 3.0)
+        return TranscriptionResult(
+            segments=[TranscriptSegment(0.0, 3.0, "Hello")],
+            full_text="Hello",
+            audio_duration=3.0,
+            elapsed_time=0.3,
+        )
+
+    prev_lang = get_language()
+    try:
+        set_language("en")
+        with patch.object(transcriber, "transcribe", side_effect=fake_transcribe):
+            with qtbot.waitSignal(worker.batch_finished, timeout=10000):
+                worker.start()
+            worker.wait(5000)
+
+        assert len(progress_events) == 2
+        _, pct1, msg1 = progress_events[0]
+        _, pct2, msg2 = progress_events[1]
+        assert pct1 == 50
+        assert "00:01 / 00:03 (50%)" in msg1 or "00:02 / 00:03 (50%)" in msg1
+        assert "x" in msg1
+        assert "ETA" in msg1
+        assert pct2 == 100
+        assert "ETA" not in msg2
+        assert "x" in msg2
+    finally:
+        set_language(prev_lang)

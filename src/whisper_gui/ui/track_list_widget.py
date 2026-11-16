@@ -75,20 +75,24 @@ class TrackListWidget(QFrame):
         toolbar.setSpacing(8)
 
         self.btn_add_files = QPushButton(tr("tracks.add_files"))
+        self.btn_add_files.setFixedHeight(32)
         self.btn_add_files.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_files)
 
         self.btn_add_folder = QPushButton(tr("tracks.add_folder"))
+        self.btn_add_folder.setFixedHeight(32)
         self.btn_add_folder.setToolTip(tr("tracks.add_folder_tooltip"))
         self.btn_add_folder.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_add_folder)
 
         self.btn_remove = QPushButton(tr("tracks.remove"))
-        self.btn_remove.setStyleSheet("padding: 4px 8px; font-size: 11px;")
+        self.btn_remove.setFixedHeight(32)
+        self.btn_remove.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_remove)
 
         self.btn_clear = QPushButton(tr("tracks.clear"))
-        self.btn_clear.setStyleSheet("padding: 4px 8px; font-size: 11px;")
+        self.btn_clear.setFixedHeight(32)
+        self.btn_clear.setStyleSheet("padding: 4px 12px; font-size: 12px;")
         toolbar.addWidget(self.btn_clear)
 
         toolbar.addStretch()
@@ -103,13 +107,15 @@ class TrackListWidget(QFrame):
             tr("tracks.col_status"),
             tr("tracks.col_docx"),
         ])
-        self.table.horizontalHeader().setStretchLastSection(False)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table.setColumnWidth(1, 96)
-        self.table.setColumnWidth(2, 92)
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(76)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(2, 108)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table.setColumnHidden(3, True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
@@ -163,7 +169,7 @@ class TrackListWidget(QFrame):
             }}
             QTableWidget::item {{
                 border-bottom: 1px solid {p.border};
-                padding: 4px 8px;
+                padding: 4px 12px;
             }}
             QTableWidget::item:selected {{
                 background-color: {p.bg_raised};
@@ -281,6 +287,7 @@ class TrackListWidget(QFrame):
             # Column 2: Status
             status_text = display_track_status(track.status_message, track.status)
             item_status = QTableWidgetItem(status_text)
+            item_status.setToolTip(status_text)
             item_status.setTextAlignment(Qt.AlignCenter)
             item_status.setForeground(QColor(_status_color(track.status)))
             self.table.setItem(row, 2, item_status)
@@ -358,7 +365,9 @@ class TrackListWidget(QFrame):
         # Update Status column
         item_status = self.table.item(row, 2)
         if item_status:
-            item_status.setText(display_track_status(track.status_message, track.status))
+            status_text = display_track_status(track.status_message, track.status)
+            item_status.setText(status_text)
+            item_status.setToolTip(status_text)
             item_status.setForeground(QColor(_status_color(track.status)))
 
         # Update Docx column

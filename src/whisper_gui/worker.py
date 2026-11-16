@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from whisper_gui.audio_utils import CancelledError, slice_audio
+from whisper_gui.audio_utils import CancelledError, format_seconds, slice_audio
 from whisper_gui.exporters import export_transcript
 from whisper_gui.i18n import tr
 from whisper_gui.llm_cleaner import load_instructions, polish_transcript
@@ -118,16 +119,48 @@ class TranscriptionWorker(QThread):
                 track.id, tr("worker.transcribing_model", model=self.config.model_name)
             )
 
+            tx_started_at = time.monotonic()
+
             def handle_segment(seg: TranscriptSegment) -> None:
                 self.segment_received.emit(track.id, seg)
 
             def handle_progress(current_sec: float, total_sec: float) -> None:
-                if total_sec > 0:
-                    pct = min(100, int((current_sec / total_sec) * 100))
-                    msg = f"{current_sec:.1f}s / {total_sec:.1f}s ({pct}%)"
-                    self.progress_updated.emit(track.id, pct, msg)
+                if total_sec <= 0:
+                    return
+                cur_clamped = max(0.0, min(current_sec, total_sec))
+                pct = min(100, int((cur_clamped / total_sec) * 100))
+                pos_str = format_seconds(cur_clamped)
+                total_str = format_seconds(total_sec)
+                elapsed = max(0.0, time.monotonic() - tx_started_at)
+                if elapsed >= 0.25 and cur_clamped > 0.0:
+                    speed = cur_clamped / elapsed
+                    remaining_audio = max(0.0, total_sec - cur_clamped)
+                    if pct < 100 and remaining_audio > 0.0 and speed > 0.0:
+                        eta_str = format_seconds(remaining_audio / speed)
+                        msg = tr(
+                            "worker.progress_eta",
+                            current=pos_str,
+                            total=total_str,
+                            pct=pct,
+                            speed=speed,
+                            eta=eta_str,
+                        )
+                    else:
+                        msg = tr(
+                            "worker.progress_speed",
+                            current=pos_str,
+                            total=total_str,
+                            pct=pct,
+                            speed=speed,
+                        )
+                else:
+                    msg = tr("worker.progress_basic", current=pos_str, total=total_str, pct=pct)
+                self.progress_updated.emit(track.id, pct, msg)
 
             def handle_status(msg: str) -> None:
+                nonlocal tx_started_at
+                if msg == tr("transcriber.transcribing"):
+                    tx_started_at = time.monotonic()
                 self.status_updated.emit(track.id, msg)
 
             result = self.transcriber.transcribe(

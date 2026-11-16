@@ -158,6 +158,7 @@ class TranscriptionResult:
     llm_model_used: str | None = None
     llm_instructions_name: str | None = None
     llm_error: str | None = None
+    raw_segments_stale: bool = False
 
     @property
     def speed_factor(self) -> float:
