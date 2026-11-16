@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.5
+
+### What's New
+- **Waveform Trim Scrubber & Synced Playback:** Added PyAV waveform peak visualization (`WaveformScrubberWidget`) with draggable `[` `]` bounds and playhead inside `TrimAudioDialog`, plus a borderless `TranscriptView` playback bar (`0.75x`–`2.0x`) with click-to-seek timestamps and live segment highlighting.
+- **LLM Polishing Presets & Inline Recovery:** Added 5 built-in prompts (`Default`, `Meeting Notes`, `Action Items`, `Executive Summary`, `Q&A`) via a quick preset menu on the polish button and `LLMPanel`, live elapsed polish timer, `Stop` support for `PolishWorker`, and a non-blocking inline error bar (`Retry` / `LLM settings`).
+- **Transcript History, Batch Export & Download Progress:** Added persistent local `History` (`HistoryPageWidget`) to reopen past transcripts in two clicks, drawer `Export All` for multi-track queues, and live byte/MB progress with cancellation when downloading HuggingFace Whisper models.
+- **Live Transcription ETA & Speed Telemetry:** Displays active playback ratio (`x`) and remaining ETA while transcribing.
+
+### Refinements & Fixes
+- **Inline Edit Persistence:** Preserved manual raw transcript edits across `Raw`/`Polished` tab switches, track switching, History reopening, and `.docx`/multi-format exports (`raw_segments_stale`).
+- **UI/UX & `unslop` Pass:** Unified `32px` button heights and `8px` radii, standardized `4px`/`12px`/`24px` panel spacing, removed nested borders and duplicate completion/preset labels, widened `TrimAudioDialog` (`680x380`) to eliminate Italian text clipping, and kept `RangeSelectorWidget` synced on live theme switches.
+
 ## v0.2.4
 
 ### What's New
