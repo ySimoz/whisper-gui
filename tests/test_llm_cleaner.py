@@ -5,15 +5,22 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import urllib.error
 
+from whisper_gui.i18n import get_language, set_language
 from whisper_gui.llm_cleaner import (
     DEFAULT_INSTRUCTION_PROMPT,
+    LLMPolishError,
+    PROMPT_PRESET_IDS,
     PROVIDER_PRESETS,
     _build_request,
     clean_chat_endpoint,
+    get_llm_error_hint,
+    get_preset_label,
+    get_preset_prompt,
     get_ssl_context,
     is_anthropic_provider,
     load_instructions,
     normalize_model_name,
+    normalize_preset_id,
     polish_transcript,
     test_llm_connection as _check_conn,
 )
@@ -326,3 +333,113 @@ def test_polish_transcript_anthropic_success():
         assert sent_payload["messages"] == [
             {"role": "user", "content": "Raw transcription input text"}
         ]
+
+
+def test_prompt_presets_and_load_instructions(tmp_path: Path):
+    assert PROMPT_PRESET_IDS == ("default", "meeting_notes", "action_items", "executive_summary", "qa")
+    assert normalize_preset_id("unknown-preset") == "default"
+    assert normalize_preset_id("MEETING_NOTES") == "meeting_notes"
+
+    prev_lang = get_language()
+    try:
+        set_language("en")
+        seen_prompts = set()
+        for pid in PROMPT_PRESET_IDS:
+            cfg = LLMConfig(enabled=True, prompt_preset=pid)
+            text, name = load_instructions(cfg)
+            assert text == get_preset_prompt(pid)
+            assert text
+            seen_prompts.add(text)
+            if pid == "default":
+                assert "Speech & Transcript Polishing Instructions" in text
+                assert name == "Default Instructions"
+            else:
+                assert get_preset_label(pid) in name
+
+        assert len(seen_prompts) == len(PROMPT_PRESET_IDS)
+
+        # Custom file & text still override prompt_preset
+        custom_md = tmp_path / "custom.md"
+        custom_md.write_text("# Custom File Override", encoding="utf-8")
+        cfg_file = LLMConfig(enabled=True, prompt_preset="action_items", instruction_file=custom_md)
+        text, name = load_instructions(cfg_file)
+        assert text == "# Custom File Override"
+        assert "custom.md" in name
+
+        cfg_text = LLMConfig(
+            enabled=True,
+            prompt_preset="qa",
+            custom_instructions_text="# Inline Custom Override",
+        )
+        text, name = load_instructions(cfg_text)
+        assert text == "# Inline Custom Override"
+        assert name == "Custom Instructions"
+
+        set_language("it")
+        _, it_name = load_instructions(LLMConfig(enabled=True, prompt_preset="meeting_notes"))
+        assert "Note riunione" in it_name
+    finally:
+        set_language(prev_lang)
+
+
+def test_polish_transcript_error_classification():
+    import pytest
+
+    cfg = LLMConfig(
+        enabled=True,
+        provider="DeepSeek",
+        model_name="deepseek-v4.1-flash",
+        api_key="sk-test",
+    )
+
+    def _make_http_err(code: int, message: str) -> urllib.error.HTTPError:
+        fp_mock = MagicMock()
+        fp_mock.read.return_value = json.dumps({"error": {"message": message}}).encode("utf-8")
+        return urllib.error.HTTPError(
+            url="https://api.deepseek.com/v1/chat/completions",
+            code=code,
+            msg="Error",
+            hdrs={},
+            fp=fp_mock,
+        )
+
+    with patch("urllib.request.urlopen", side_effect=_make_http_err(401, "Bad key")):
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "auth"
+        cat, hint = get_llm_error_hint(exc_info.value)
+        assert cat == "auth"
+        assert "API key" in hint
+
+    with patch("urllib.request.urlopen", side_effect=_make_http_err(429, "Rate limit")):
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "quota"
+
+    with patch("urllib.request.urlopen", side_effect=_make_http_err(404, "No model")):
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "not_found"
+
+    with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "timeout"
+
+    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("CERTIFICATE_VERIFY_FAILED")):
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "network"
+
+    mock_empty = MagicMock()
+    mock_empty.read.return_value = json.dumps({"choices": []}).encode("utf-8")
+    with patch("urllib.request.urlopen") as mock_url:
+        mock_url.return_value.__enter__.return_value = mock_empty
+        with pytest.raises(LLMPolishError) as exc_info:
+            polish_transcript("hello", cfg)
+        assert exc_info.value.category == "empty"
+
+    # Plain string error classification works for persisted llm_error strings
+    cat, hint = get_llm_error_hint("HTTP 401 Unauthorized")
+    assert cat == "auth"
+    assert hint

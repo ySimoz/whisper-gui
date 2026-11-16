@@ -183,6 +183,183 @@ PROVIDER_PRESETS["Claude"] = PROVIDER_PRESETS["Anthropic (Claude)"]
 PROVIDER_PRESETS["Anthropic"] = PROVIDER_PRESETS["Anthropic (Claude)"]
 
 
+# Prompt preset definitions (built-in polishing modes)
+MEETING_NOTES_PROMPT = """# Meeting Notes Instructions
+
+You are an expert meeting editor. Transform the provided raw transcript into clean, structured meeting notes.
+
+## Rules to follow:
+1. **Language & Accuracy**:
+   - Write in the exact same language as the transcript.
+   - Preserve all facts, names, dates, decisions, and numbers accurately; never invent details.
+2. **Structure**:
+   - **Summary**: 2-3 concise sentences capturing the meeting purpose and outcome.
+   - **Key Topics**: Bullet points organized by topic with concrete takeaways.
+   - **Decisions**: Clear list of agreed decisions (omit section if none were made).
+   - **Next Steps**: Brief bullet list of follow-ups with owners if mentioned.
+3. **Output Cleanliness**:
+   - Strip filler words and verbal tics.
+   - Return ONLY the structured markdown notes with no conversational preamble or sign-off.
+"""
+
+ACTION_ITEMS_PROMPT = """# Action Items Instructions
+
+Extract a clear, actionable task list from the provided raw transcript.
+
+## Rules to follow:
+1. **Language & Fidelity**:
+   - Write in the exact same language as the transcript.
+   - Include only tasks, commitments, or follow-ups explicitly stated or clearly agreed upon.
+2. **Format**:
+   - Output a clean markdown checklist (`- [ ] ...`).
+   - For each item, include **Owner** (if named), **Action**, and **Deadline / Context** (if stated).
+   - Group related items under brief subheadings only when multiple distinct workstreams exist.
+   - If no concrete action items appear, state so in one plain sentence and briefly list open questions.
+3. **Output Cleanliness**:
+   - Return ONLY the action items with no conversational preamble or sign-off.
+"""
+
+EXECUTIVE_SUMMARY_PROMPT = """# Executive Summary Instructions
+
+Distill the provided raw transcript into a concise executive brief for busy readers.
+
+## Rules to follow:
+1. **Language & Fidelity**:
+   - Write in the exact same language as the transcript.
+   - Preserve figures, dates, commitments, and names accurately without speculation.
+2. **Structure**:
+   - **TL;DR**: One short paragraph (max 3 sentences) with the core message.
+   - **Key Takeaways**: 3-5 crisp bullet points highlighting the most important facts or conclusions.
+   - **Risks & Open Questions**: Brief bullets for unresolved issues or blockers (omit if none).
+3. **Output Cleanliness**:
+   - Eliminate all filler words and repetition.
+   - Return ONLY the executive summary with no conversational preamble or sign-off.
+"""
+
+QA_PROMPT = """# Q&A Extraction Instructions
+
+Reformat the provided raw transcript into a clean Questions & Answers document.
+
+## Rules to follow:
+1. **Language & Fidelity**:
+   - Write in the exact same language as the transcript.
+   - Preserve technical terms, figures, names, and nuance without introducing external claims.
+2. **Structure**:
+   - Group related exchanges into clear `**Q:**` and `**A:**` pairs.
+   - If the transcript is a monologue or presentation, organize key topics as logical questions the speaker answered.
+   - Strip filler words, false starts, and repetitions while keeping the speaker's intent intact.
+3. **Output Cleanliness**:
+   - Return ONLY the Q&A text with no conversational preamble or sign-off.
+"""
+
+PROMPT_PRESET_IDS: tuple[str, ...] = (
+    "default",
+    "meeting_notes",
+    "action_items",
+    "executive_summary",
+    "qa",
+)
+
+PROMPT_PRESETS: dict[str, dict[str, str]] = {
+    "default": {
+        "label_key": "llm.preset_default",
+        "prompt": DEFAULT_INSTRUCTION_PROMPT,
+    },
+    "meeting_notes": {
+        "label_key": "llm.preset_meeting_notes",
+        "prompt": MEETING_NOTES_PROMPT,
+    },
+    "action_items": {
+        "label_key": "llm.preset_action_items",
+        "prompt": ACTION_ITEMS_PROMPT,
+    },
+    "executive_summary": {
+        "label_key": "llm.preset_executive_summary",
+        "prompt": EXECUTIVE_SUMMARY_PROMPT,
+    },
+    "qa": {
+        "label_key": "llm.preset_qa",
+        "prompt": QA_PROMPT,
+    },
+}
+
+
+def normalize_preset_id(preset_id: str | None) -> str:
+    """Return a valid built-in prompt preset ID, defaulting to 'default'."""
+    key = (preset_id or "default").strip().lower()
+    return key if key in PROMPT_PRESETS else "default"
+
+
+def get_preset_prompt(preset_id: str | None) -> str:
+    """Return the markdown instruction prompt for a built-in preset ID."""
+    key = normalize_preset_id(preset_id)
+    return PROMPT_PRESETS[key]["prompt"].strip()
+
+
+def get_preset_label(preset_id: str | None) -> str:
+    """Return the localized display label for a built-in preset ID."""
+    key = normalize_preset_id(preset_id)
+    return tr(PROMPT_PRESETS[key]["label_key"])
+
+
+class LLMPolishError(RuntimeError):
+    """RuntimeError carrying a structured error category for actionable UI recovery."""
+
+    def __init__(self, message: str, category: str = "unknown") -> None:
+        super().__init__(message)
+        self.category = category
+
+
+def classify_llm_error(error: str | Exception) -> str:
+    """Classify an LLM error exception or message into a recovery category."""
+    if isinstance(error, LLMPolishError) and error.category:
+        return error.category
+    msg = str(error or "").lower()
+    if any(tok in msg for tok in ("401", "403", "authentication", "invalid api key", "unauthorized")):
+        return "auth"
+    if any(tok in msg for tok in ("402", "429", "quota", "rate limit", "insufficient")):
+        return "quota"
+    if any(tok in msg for tok in ("404", "not found")):
+        return "not_found"
+    if any(tok in msg for tok in ("timed out", "timeout")):
+        return "timeout"
+    if any(
+        tok in msg
+        for tok in (
+            "ssl",
+            "certificate",
+            "network error",
+            "connection",
+            "urlopen",
+            "name or service not known",
+            "nodename",
+            "dns",
+        )
+    ):
+        return "network"
+    if any(tok in msg for tok in ("empty response", "empty text", "no choices", "no content blocks")):
+        return "empty"
+    if "http" in msg:
+        return "http"
+    return "unknown"
+
+
+def get_llm_error_hint(error: str | Exception) -> tuple[str, str]:
+    """Return (category, localized_recovery_hint) for an LLM polishing error."""
+    category = classify_llm_error(error)
+    hint_keys = {
+        "auth": "llm.hint_auth",
+        "quota": "llm.hint_quota",
+        "not_found": "llm.hint_not_found",
+        "timeout": "llm.hint_timeout",
+        "network": "llm.hint_network",
+        "empty": "llm.hint_empty",
+        "http": "llm.hint_http",
+        "unknown": "llm.hint_unknown",
+    }
+    return category, tr(hint_keys.get(category, "llm.hint_unknown"))
+
+
 def load_instructions(config: LLMConfig) -> tuple[str, str]:
     """Load instruction prompt and identify its source name.
 
@@ -203,12 +380,15 @@ def load_instructions(config: LLMConfig) -> tuple[str, str]:
             return content.strip(), tr("llm.source_file", name=Path(config.instruction_file).name)
         except Exception as e:
             logger.warning(
-                "Failed to read custom instruction file %s: %s. Falling back to default.",
+                "Failed to read custom instruction file %s: %s. Falling back to preset.",
                 config.instruction_file,
                 e,
             )
 
-    return DEFAULT_INSTRUCTION_PROMPT.strip(), tr("llm.source_default")
+    preset_id = normalize_preset_id(getattr(config, "prompt_preset", "default"))
+    if preset_id == "default":
+        return DEFAULT_INSTRUCTION_PROMPT.strip(), tr("llm.source_default")
+    return get_preset_prompt(preset_id), tr("llm.source_preset", name=get_preset_label(preset_id))
 
 
 def _build_request(
@@ -393,7 +573,7 @@ def polish_transcript(
             if is_anthropic:
                 content_blocks = data.get("content", [])
                 if not content_blocks:
-                    raise RuntimeError(tr("llm.err_anthropic_empty"))
+                    raise LLMPolishError(tr("llm.err_anthropic_empty"), category="empty")
                 text_parts = [
                     b.get("text", "")
                     for b in content_blocks
@@ -403,13 +583,13 @@ def polish_transcript(
             else:
                 choices = data.get("choices", [])
                 if not choices:
-                    raise RuntimeError(tr("llm.err_empty_choices"))
+                    raise LLMPolishError(tr("llm.err_empty_choices"), category="empty")
 
                 msg_obj = choices[0].get("message", {})
                 content = (msg_obj.get("content") or msg_obj.get("reasoning_content") or "").strip()
 
             if not content:
-                raise RuntimeError(tr("llm.err_empty_message"))
+                raise LLMPolishError(tr("llm.err_empty_message"), category="empty")
 
             # If the LLM wrapped the entire response in markdown code blocks, unwrap it
             if content.startswith("```markdown\n") and content.endswith("```"):
@@ -425,12 +605,45 @@ def polish_transcript(
             err_msg = json.loads(err.read().decode("utf-8")).get("error", {}).get("message", "")
         except Exception:
             pass
-        raise RuntimeError(tr("llm.err_http", code=err.code, msg=err_msg or err.reason)) from err
+        detail = err_msg or str(err.reason)
+        if err.code in (401, 403):
+            raise LLMPolishError(
+                tr("llm.err_auth", code=err.code, msg=detail), category="auth"
+            ) from err
+        if err.code in (402, 429):
+            raise LLMPolishError(
+                tr("llm.err_quota", code=err.code, msg=detail), category="quota"
+            ) from err
+        if err.code == 404:
+            raise LLMPolishError(
+                tr("llm.err_not_found", endpoint=endpoint, model=model_id), category="not_found"
+            ) from err
+        raise LLMPolishError(
+            tr("llm.err_http", code=err.code, msg=detail), category="http"
+        ) from err
+
+    except TimeoutError as err:
+        raise LLMPolishError(
+            tr("llm.err_timeout", seconds=int(timeout)), category="timeout"
+        ) from err
 
     except urllib.error.URLError as err:
-        raise RuntimeError(tr("llm.err_network", reason=err.reason)) from err
+        reason_str = str(err.reason)
+        if "CERTIFICATE_VERIFY_FAILED" in reason_str:
+            raise LLMPolishError(
+                tr("llm.conn_ssl_error", reason=reason_str), category="network"
+            ) from err
+        if "timed out" in reason_str.lower():
+            raise LLMPolishError(
+                tr("llm.err_timeout", seconds=int(timeout)), category="timeout"
+            ) from err
+        raise LLMPolishError(
+            tr("llm.err_network", reason=reason_str), category="network"
+        ) from err
 
     except Exception as err:
         if isinstance(err, (InterruptedError, RuntimeError)):
             raise
-        raise RuntimeError(tr("llm.err_failed", error=err)) from err
+        raise LLMPolishError(
+            tr("llm.err_failed", error=err), category="unknown"
+        ) from err

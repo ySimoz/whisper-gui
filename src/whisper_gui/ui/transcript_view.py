@@ -6,8 +6,8 @@ from dataclasses import replace
 import html
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QGuiApplication, QKeySequence, QShortcut, QTextCursor, QTextDocument
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QFont, QGuiApplication, QKeySequence, QShortcut, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from whisper_gui.exporters import export_transcript
 from whisper_gui.i18n import display_track_status, tr
+from whisper_gui.llm_cleaner import PROMPT_PRESET_IDS, get_llm_error_hint, get_preset_label
 from whisper_gui.models import (
     AudioTrack,
     TranscriptionConfig,
@@ -39,6 +41,8 @@ class TranscriptView(QFrame):
     """Displays real-time streaming transcription segments, progress bar, and export actions."""
 
     polish_requested = Signal()
+    preset_selected = Signal(str)
+    llm_settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,6 +54,8 @@ class TranscriptView(QFrame):
         self._raw_segments: list[TranscriptSegment] = []
         self._polished_text: str | None = None
         self._polished_model_name: str = ""
+        self._active_preset: str | None = "default"
+        self._polish_error_msg: str = ""
         self._active_mode: str = "raw"  # "raw" or "polished"
         self._updating_text: bool = False
         self._raw_edited: bool = False
@@ -113,10 +119,32 @@ class TranscriptView(QFrame):
         self.btn_polish.setToolTip(tr("transcript.polish_tooltip"))
         mode_bar.addWidget(self.btn_polish)
 
-        self.lbl_view_hint = QLabel("")
-        mode_bar.addWidget(self.lbl_view_hint)
+        self.btn_polish_preset = QPushButton()
+        self.btn_polish_preset.setObjectName("btn_polish_preset")
+        self.btn_polish_preset.setFixedSize(32, 32)
+        self.btn_polish_preset.setIconSize(QSize(14, 14))
+        self.polish_preset_menu = QMenu(self)
+        self.polish_preset_group = QActionGroup(self)
+        self.polish_preset_group.setExclusive(True)
+        self.polish_preset_actions: dict[str, QAction] = {}
+        for preset_id in PROMPT_PRESET_IDS:
+            act = self.polish_preset_menu.addAction(get_preset_label(preset_id))
+            act.setCheckable(True)
+            act.setData(preset_id)
+            act.triggered.connect(lambda _checked=False, pid=preset_id: self._on_preset_action_triggered(pid))
+            self.polish_preset_group.addAction(act)
+            self.polish_preset_actions[preset_id] = act
+        self.polish_preset_menu.addSeparator()
+        self._act_open_llm_settings = self.polish_preset_menu.addAction(
+            tr("transcript.preset_open_settings")
+        )
+        self._act_open_llm_settings.triggered.connect(self.llm_settings_requested.emit)
+        mode_bar.addWidget(self.btn_polish_preset)
 
-        mode_bar.addStretch()
+        self.lbl_view_hint = QLabel("")
+        self.lbl_view_hint.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.lbl_view_hint.setMinimumWidth(0)
+        mode_bar.addWidget(self.lbl_view_hint, stretch=1)
 
         self.btn_find = QPushButton(tr("transcript.find"))
         self.btn_find.setCheckable(True)
@@ -162,6 +190,34 @@ class TranscriptView(QFrame):
         find_layout.addWidget(self.btn_find_close)
 
         layout.addWidget(self.find_bar)
+
+        # Inline LLM error recovery bar (hidden unless polishing fails)
+        self.polish_error_bar = QFrame()
+        self.polish_error_bar.setObjectName("polish_error_bar")
+        self.polish_error_bar.setVisible(False)
+        err_layout = QHBoxLayout(self.polish_error_bar)
+        err_layout.setContentsMargins(12, 8, 12, 8)
+        err_layout.setSpacing(8)
+
+        self.lbl_polish_error = QLabel("")
+        self.lbl_polish_error.setWordWrap(True)
+        err_layout.addWidget(self.lbl_polish_error, stretch=1)
+
+        self.btn_polish_retry = QPushButton(tr("transcript.polish_retry"))
+        self.btn_polish_retry.setFixedHeight(32)
+        err_layout.addWidget(self.btn_polish_retry)
+
+        self.btn_polish_settings = QPushButton(tr("transcript.polish_settings"))
+        self.btn_polish_settings.setFixedHeight(32)
+        err_layout.addWidget(self.btn_polish_settings)
+
+        self.btn_polish_err_close = QPushButton()
+        self.btn_polish_err_close.setFixedSize(32, 32)
+        self.btn_polish_err_close.setToolTip(tr("transcript.polish_error_dismiss"))
+        self.btn_polish_err_close.setStyleSheet("padding: 0px;")
+        err_layout.addWidget(self.btn_polish_err_close)
+
+        layout.addWidget(self.polish_error_bar)
 
         # Text stream display
         self.txt_display = QTextEdit()
@@ -238,7 +294,12 @@ class TranscriptView(QFrame):
         # Connect signals
         self.btn_view_raw.clicked.connect(lambda: self._on_mode_button_clicked("raw"))
         self.btn_polish.clicked.connect(self.polish_requested.emit)
+        self.btn_polish_preset.clicked.connect(self._open_preset_menu)
+        self.btn_polish_retry.clicked.connect(self.polish_requested.emit)
+        self.btn_polish_settings.clicked.connect(self.llm_settings_requested.emit)
+        self.btn_polish_err_close.clicked.connect(self.clear_polish_error)
         self.btn_view_polished.clicked.connect(lambda: self._on_mode_button_clicked("polished"))
+        self.sync_polish_preset(self._active_preset)
         self.btn_find.clicked.connect(self._toggle_find_bar)
         self.txt_find.textChanged.connect(self._on_find_text_changed)
         self.txt_find.returnPressed.connect(self._find_next)
@@ -261,7 +322,10 @@ class TranscriptView(QFrame):
             )
         self.btn_view_raw.setText(tr("transcript.raw"))
         self.btn_view_polished.setText(tr("transcript.polished"))
-        self.btn_polish.setToolTip(tr("transcript.polish_tooltip"))
+        for pid, act in self.polish_preset_actions.items():
+            act.setText(get_preset_label(pid))
+        self._act_open_llm_settings.setText(tr("transcript.preset_open_settings"))
+        self.sync_polish_preset(self._active_preset)
         self._update_polish_button_state()
         if self._polished_text and self._polished_text.strip():
             info = (
@@ -270,6 +334,11 @@ class TranscriptView(QFrame):
                 else tr("transcript.polished_with_llm")
             )
             self.lbl_view_hint.setText(info)
+        self.btn_polish_retry.setText(tr("transcript.polish_retry"))
+        self.btn_polish_settings.setText(tr("transcript.polish_settings"))
+        self.btn_polish_err_close.setToolTip(tr("transcript.polish_error_dismiss"))
+        if self._polish_error_msg and self.polish_error_bar.isVisible():
+            self.show_polish_error(self._polish_error_msg)
         self.btn_find.setText(tr("transcript.find"))
         self.btn_find.setToolTip(tr("transcript.find_tooltip"))
         self.txt_find.setPlaceholderText(tr("transcript.find_placeholder"))
@@ -355,6 +424,45 @@ class TranscriptView(QFrame):
         """
         for btn in (self.btn_view_raw, self.btn_view_polished, self.btn_polish, self.btn_find):
             btn.setStyleSheet(seg_btn_style)
+            btn.setFixedHeight(32)
+
+        self.btn_polish_preset.setStyleSheet(
+            seg_btn_style + "\nQPushButton { padding: 0px; }"
+        )
+        self.btn_polish_preset.setIcon(load_ui_icon("chevron-down"))
+
+        self.polish_error_bar.setStyleSheet(f"""
+            #polish_error_bar {{
+                background-color: {p.bg_raised};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                border: none;
+                background: transparent;
+            }}
+        """)
+        self.lbl_polish_error.setStyleSheet(f"color: {p.negative}; font-size: 12px;")
+        self.btn_polish_err_close.setIcon(load_ui_icon("close"))
+
+        menu_style = f"""
+            QMenu {{
+                background-color: {p.bg_surface};
+                border: 1px solid {p.border};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 6px 20px 6px 12px;
+                border-radius: 4px;
+                color: {p.text_main};
+            }}
+            QMenu::item:selected {{
+                background-color: {p.bg_raised};
+                color: {p.text_main};
+            }}
+        """
+        self.polish_preset_menu.setStyleSheet(menu_style)
 
         self.txt_display.setStyleSheet(f"""
             QTextEdit {{
@@ -379,23 +487,7 @@ class TranscriptView(QFrame):
                 height: 14px;
             }}
         """)
-        self.export_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {p.bg_surface};
-                border: 1px solid {p.border};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px 6px 12px;
-                border-radius: 4px;
-                color: {p.text_main};
-            }}
-            QMenu::item:selected {{
-                background-color: {p.bg_raised};
-                color: {p.text_main};
-            }}
-        """)
+        self.export_menu.setStyleSheet(menu_style)
         if (
             self._raw_segments
             or self._raw_edited
@@ -403,6 +495,39 @@ class TranscriptView(QFrame):
             or (self._current_result and self._current_result.full_text)
         ):
             self._switch_view(self._active_mode, force=True)
+
+    def _open_preset_menu(self) -> None:
+        pos = self.btn_polish_preset.mapToGlobal(QPoint(0, self.btn_polish_preset.height() + 4))
+        self.polish_preset_menu.exec(pos)
+
+    def _on_preset_action_triggered(self, preset_id: str) -> None:
+        self.sync_polish_preset(preset_id)
+        self.preset_selected.emit(preset_id)
+
+    def sync_polish_preset(self, preset_id: str | None) -> None:
+        """Update preset menu selection and tooltips without emitting preset_selected."""
+        self._active_preset = preset_id
+        for pid, act in self.polish_preset_actions.items():
+            act.setChecked(preset_id == pid)
+        label = get_preset_label(preset_id) if preset_id else tr("llm.preset_custom")
+        self.btn_polish_preset.setToolTip(tr("transcript.preset_tooltip", name=label))
+        self.btn_polish.setToolTip(tr("transcript.polish_tooltip_preset", name=label))
+
+    def show_polish_error(self, error_msg: str) -> None:
+        """Show the inline non-blocking LLM error recovery banner with actionable hint."""
+        self._polish_error_msg = error_msg or ""
+        if not self._polish_error_msg.strip():
+            self.clear_polish_error()
+            return
+        _category, hint = get_llm_error_hint(self._polish_error_msg)
+        self.lbl_polish_error.setText(f"{self._polish_error_msg} {hint}".strip())
+        self.polish_error_bar.setVisible(True)
+
+    def clear_polish_error(self) -> None:
+        """Hide the inline LLM error recovery banner."""
+        self._polish_error_msg = ""
+        self.lbl_polish_error.setText("")
+        self.polish_error_bar.setVisible(False)
 
     def _toggle_find_bar(self) -> None:
         if self.find_bar.isVisible():
@@ -561,6 +686,7 @@ class TranscriptView(QFrame):
 
     def set_polished_text(self, text: str, model_name: str = "") -> None:
         """Store polished text and switch view to it."""
+        self.clear_polish_error()
         self._polished_text = text
         self._polished_model_name = model_name
         self.btn_view_polished.setEnabled(bool(text.strip()))
@@ -641,10 +767,12 @@ class TranscriptView(QFrame):
             self.btn_view_polished.setEnabled(False)
             self.btn_view_raw.setChecked(True)
             self._switch_view("raw", force=True)
+            if result.llm_error:
+                self.show_polish_error(result.llm_error)
 
         status_text = display_track_status(track.status_message, track.status)
         self.set_status(status_text)
-        self.set_progress(track.progress_percent or 100, status_text)
+        self.set_progress(track.progress_percent or 100)
 
     def set_completed_track(
         self,
@@ -727,6 +855,7 @@ class TranscriptView(QFrame):
         finally:
             self._updating_text = False
         self.lbl_find_status.setText("")
+        self.clear_polish_error()
         self.progress_bar.setValue(0)
         self.lbl_status.setText(tr("transcript.idle"))
         self.lbl_metrics.setText("")

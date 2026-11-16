@@ -508,7 +508,7 @@ def test_transcript_view_load_track(qtbot, tmp_path):
     assert view.btn_view_polished.isChecked()
     assert view.txt_display.toPlainText() == "Polished clean paragraph."
     assert "Completed (2.5x real-time)" in view.lbl_status.text()
-    assert view.lbl_metrics.text() == "Completed (2.5x real-time)"
+    assert view.lbl_metrics.text() == ""
 
     # Toggle to raw on polished track
     view.btn_view_raw.click()
@@ -1131,6 +1131,10 @@ def test_worker_progress_telemetry_updates_status_and_metrics(qtbot, tmp_path):
     assert t1.progress_percent == 50
     assert win.transcript_view.progress_bar.value() == 50
     assert win.transcript_view.lbl_metrics.text() == metrics
+    assert metrics not in win.status_bar.currentMessage()
+
+    win.page_stack.setCurrentIndex(1)
+    win._on_worker_progress_updated(t1.id, 50, metrics)
     assert "telemetry.wav" in win.status_bar.currentMessage()
     assert metrics in win.status_bar.currentMessage()
 
@@ -1160,3 +1164,209 @@ def test_range_selector_theme_and_trim_dialog_italian_no_clipping(qtbot, tmp_pat
     finally:
         set_language(prev_lang)
         set_theme(prev_theme)
+
+
+def test_llm_panel_presets_and_custom_md_persistence(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtCore import QSettings
+    from whisper_gui.i18n import get_language, set_language
+    from whisper_gui.llm_cleaner import PROMPT_PRESET_IDS, load_instructions
+    from whisper_gui.ui.llm_panel import LLMPanel
+
+    monkeypatch.setattr("whisper_gui.credentials.sys.platform", "linux")
+    monkeypatch.setattr("whisper_gui.credentials.shutil.which", lambda _name: None)
+
+    prev_lang = get_language()
+    try:
+        set_language("en")
+        panel = LLMPanel()
+        qtbot.addWidget(panel)
+
+        preset_data = [panel.combo_preset.itemData(i) for i in range(panel.combo_preset.count())]
+        assert preset_data == list(PROMPT_PRESET_IDS)
+        assert panel.active_prompt_preset() == "default"
+
+        # Switch to Meeting Notes
+        idx_meeting = panel.combo_preset.findData("meeting_notes")
+        assert idx_meeting >= 0
+        panel.combo_preset.setCurrentIndex(idx_meeting)
+        assert panel.active_prompt_preset() == "meeting_notes"
+        assert panel.lbl_active_prompt.isHidden()
+        cfg_meeting = panel.get_config()
+        assert cfg_meeting.prompt_preset == "meeting_notes"
+        text_m, _ = load_instructions(cfg_meeting)
+        assert "Meeting Notes Instructions" in text_m
+
+        # Import custom .md file overrides preset and adds transient custom item
+        md_file = tmp_path / "standup.md"
+        md_file.write_text("# Standup Notes\nKeep under 5 bullets.", encoding="utf-8")
+        with patch("PySide6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(md_file), "")), patch(
+            "PySide6.QtWidgets.QMessageBox.information"
+        ):
+            panel.btn_import_md.click()
+
+        assert panel.active_prompt_preset() is None
+        assert panel.combo_preset.currentData() == "custom"
+        assert not panel.lbl_active_prompt.isHidden()
+        assert "standup.md" in panel.lbl_active_prompt.text()
+        text_c, _ = load_instructions(panel.get_config())
+        assert "Standup Notes" in text_c
+
+        # Selecting a preset clears the custom override cleanly
+        idx_action = panel.combo_preset.findData("action_items")
+        panel.combo_preset.setCurrentIndex(idx_action)
+        assert panel.active_prompt_preset() == "action_items"
+        assert panel.combo_preset.findData("custom") == -1
+        assert panel.lbl_active_prompt.isHidden()
+
+        # Save and load round-trip
+        settings = QSettings(str(tmp_path / "preset_settings.ini"), QSettings.IniFormat)
+        panel.save_settings(settings)
+
+        panel2 = LLMPanel()
+        qtbot.addWidget(panel2)
+        panel2.load_settings(settings)
+        assert panel2.active_prompt_preset() == "action_items"
+        assert panel2.get_config().prompt_preset == "action_items"
+
+        # Live Italian retranslation
+        set_language("it")
+        panel2.retranslate_ui()
+        assert panel2.combo_preset.currentText() == "Azioni da fare"
+        assert panel2.lbl_active_prompt.isHidden()
+    finally:
+        set_language(prev_lang)
+
+
+def test_transcript_view_preset_menu_and_error_recovery(qtbot, tmp_path):
+    from whisper_gui.i18n import get_language, set_language
+
+    prev_lang = get_language()
+    try:
+        set_language("en")
+        view = TranscriptView()
+        qtbot.addWidget(view)
+        view.show()
+
+        assert not view.polish_error_bar.isVisible()
+        assert view.polish_preset_actions["default"].isChecked()
+
+        # Selecting a preset via menu action updates selection & emits signal
+        selected = []
+        view.preset_selected.connect(selected.append)
+        view.polish_preset_actions["executive_summary"].trigger()
+        assert selected == ["executive_summary"]
+        assert view.polish_preset_actions["executive_summary"].isChecked()
+        assert "Executive summary" in view.btn_polish_preset.toolTip()
+
+        # Inline error recovery bar displays actionable hint and buttons
+        view.show_polish_error("Authentication failed (401): Bad key")
+        assert view.polish_error_bar.isVisible()
+        assert "API key" in view.lbl_polish_error.text()
+
+        retry_hits = []
+        settings_hits = []
+        view.polish_requested.connect(lambda: retry_hits.append(True))
+        view.llm_settings_requested.connect(lambda: settings_hits.append(True))
+
+        view.btn_polish_retry.click()
+        view.btn_polish_settings.click()
+        assert retry_hits == [True]
+        assert settings_hits == [True]
+
+        # Retranslation updates error bar buttons & preset labels
+        set_language("it")
+        view.retranslate_ui()
+        assert view.btn_polish_retry.text() == "Riprova"
+        assert view.btn_polish_settings.text() == "Impostazioni LLM"
+        assert view.polish_preset_actions["executive_summary"].text() == "Sintesi esecutiva"
+
+        # Dismiss hides error bar
+        view.btn_polish_err_close.click()
+        assert not view.polish_error_bar.isVisible()
+
+        # load_track with llm_error shows error bar; clean track hides it
+        err_track = AudioTrack(tmp_path / "e.wav", AudioInfo(path=tmp_path / "e.wav", filename="e.wav", duration=5.0))
+        err_track.result = TranscriptionResult(full_text="raw", llm_error="HTTP 429 rate limit")
+        view.load_track(err_track)
+        assert view.polish_error_bar.isVisible()
+
+        view.set_polished_text("Clean output", "deepseek-flash")
+        assert not view.polish_error_bar.isVisible()
+    finally:
+        set_language(prev_lang)
+
+
+def test_main_window_polish_preset_sync_elapsed_and_error_recovery(qtbot, tmp_path):
+    import gc
+    from whisper_gui.i18n import get_language, set_language
+
+    prev_lang = get_language()
+
+    def _run():
+        set_language("en")
+        window = MainWindow()
+        window.show()
+        QApplication.processEvents()
+        try:
+            p1 = tmp_path / "meeting.wav"
+            p1.touch()
+            track = AudioTrack(p1, AudioInfo(path=p1, filename="meeting.wav", duration=12.0))
+            track.result = TranscriptionResult(
+                segments=[TranscriptSegment(start=0.0, end=3.0, text="um let us review action items")],
+                full_text="um let us review action items",
+            )
+            window.track_list._tracks.append(track)
+            window.track_list._track_map[track.id] = track
+            window.track_list._refresh_table()
+            window._on_track_selected(track)
+
+            # Selecting preset from TranscriptView menu syncs to LLMPanel
+            window.transcript_view.polish_preset_actions["action_items"].trigger()
+            assert window.llm_panel.get_config().prompt_preset == "action_items"
+            assert "Action items" in window.status_bar.currentMessage()
+
+            # Elapsed timer updates status & metrics live during polishing
+            window._start_polish_timer(track.id, "deepseek-flash")
+            window._polish_start_time -= 4.2
+            window._on_polish_elapsed_tick()
+            assert "4s" in window.transcript_view.lbl_status.text()
+            assert window.transcript_view.lbl_metrics.text() == "4s"
+            assert "4s" in window.status_bar.currentMessage()
+            window._stop_polish_timer()
+
+            # Failed polish shows inline recovery bar without modal dialog
+            window.llm_panel.combo_provider.setCurrentText("DeepSeek")
+            window.llm_panel.txt_api_key.setText("sk-bad-key")
+            with patch("whisper_gui.worker.polish_transcript", side_effect=RuntimeError("Authentication failed (401)")):
+                window.transcript_view.btn_polish.click()
+                assert window._polish_worker is not None
+                qtbot.waitUntil(lambda: window._polish_worker is None, timeout=5000)
+
+            assert window.transcript_view.polish_error_bar.isVisible()
+            assert "API key" in window.transcript_view.lbl_polish_error.text()
+            assert not window.btn_stop.isEnabled()
+
+            # Clicking LLM Settings button navigates directly to Settings page
+            window.transcript_view.btn_polish_settings.click()
+            assert window.page_stack.currentIndex() == 1
+
+            # Retrying from inline error bar succeeds and clears banner
+            window.settings_page.btn_back.click()
+            with patch("whisper_gui.worker.polish_transcript", return_value="- [ ] Review action items"):
+                window.transcript_view.btn_polish_retry.click()
+                assert window._polish_worker is not None
+                qtbot.waitUntil(lambda: window._polish_worker is None, timeout=5000)
+
+            assert not window.transcript_view.polish_error_bar.isVisible()
+            assert window.transcript_view.txt_display.toPlainText() == "- [ ] Review action items"
+        finally:
+            with patch.object(window, "_save_settings"):
+                window.close()
+            window.deleteLater()
+            QApplication.processEvents()
+
+    try:
+        _run()
+        gc.collect()
+    finally:
+        set_language(prev_lang)

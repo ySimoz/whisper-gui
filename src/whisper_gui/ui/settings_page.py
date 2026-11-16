@@ -85,10 +85,10 @@ class SettingsPageWidget(QWidget):
         layout.addWidget(self.nav_bar)
 
         # Sequential Scrollable Container
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         # Centered container for optimal readability
         center_host = QWidget()
@@ -124,16 +124,20 @@ class SettingsPageWidget(QWidget):
 
         content_layout.addStretch()
         center_host_layout.addWidget(content)
-        scroll.setWidget(center_host)
-        layout.addWidget(scroll, stretch=1)
+        self.scroll_area.setWidget(center_host)
+        layout.addWidget(self.scroll_area, stretch=1)
 
         # Forward mouse wheel over any inputs/dropdowns to scroll the settings page
-        self.wheel_filter = ScrollBubbleFilter(scroll)
+        self.wheel_filter = ScrollBubbleFilter(self.scroll_area)
         for panel in (self.settings_panel, self.llm_panel):
             for child in panel.findChildren(QComboBox) + panel.findChildren(QSpinBox):
                 child.installEventFilter(self.wheel_filter)
 
         self.apply_theme()
+
+    def scroll_to_llm(self) -> None:
+        """Scroll the settings page so the LLM Transcript Polishing card is visible."""
+        self.scroll_area.ensureWidgetVisible(self.sec2_frame, 0, 20)
 
     def retranslate_ui(self) -> None:
         """Update static labels to the active application language."""
