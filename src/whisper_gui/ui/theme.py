@@ -10,7 +10,16 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QCheckBox, QStyle, QStyleOptionButton
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QListView,
+    QMenu,
+    QProxyStyle,
+    QStyle,
+    QStyleOptionButton,
+)
 
 from whisper_gui.platform_utils import get_asset_path
 
@@ -226,6 +235,86 @@ def fixed_mono_font(point_size: int | None = None) -> QFont:
     if point_size is not None:
         font.setPointSize(point_size)
     return font
+
+
+class _ComboPopupStyle(QProxyStyle):
+    """Force non-native list popup geometry aligned 4px below/above the combobox."""
+
+    def styleHint(self, hint, option=None, widget=None, returnData=None):
+        if hint == QStyle.StyleHint.SH_ComboBox_Popup:
+            return 0
+        return super().styleHint(hint, option, widget, returnData)
+
+    def subControlRect(self, cc, opt, sc, widget=None):
+        if (
+            cc == QStyle.ComplexControl.CC_ComboBox
+            and sc == QStyle.SubControl.SC_ComboBoxListBoxPopup
+            and opt is not None
+        ):
+            # Override QMacStyle's (-7, +1, w-18, 1) inset so popup matches combo width with a 4px gap.
+            return QRect(0, -4, opt.rect.width(), opt.rect.height() + 9)
+        return super().subControlRect(cc, opt, sc, widget)
+
+
+def style_combobox(combo: QComboBox, max_visible: int = 10) -> QComboBox:
+    """Configure a QComboBox for single-frame, index-invariant popup rendering."""
+    if not combo.property("_combo_popup_styled"):
+        popup_style = _ComboPopupStyle()
+        popup_style.setParent(combo)
+        combo.setStyle(popup_style)
+        combo.setProperty("_combo_popup_styled", True)
+
+    view = combo.view()
+    if not isinstance(view, QListView):
+        view = QListView()
+        combo.setView(view)
+
+    combo.setMaxVisibleItems(max_visible)
+    view.setFrameShape(QFrame.Shape.NoFrame)
+    view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    view.setUniformItemSizes(True)
+
+    container = view.parentWidget()
+    if container is not None:
+        container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        container.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        if isinstance(container, QFrame):
+            container.setFrameShape(QFrame.Shape.NoFrame)
+        container.setContentsMargins(0, 0, 0, 0)
+        if container.layout() is not None:
+            container.layout().setContentsMargins(0, 0, 0, 0)
+
+    return combo
+
+
+def menu_stylesheet(p: ThemePalette | None = None) -> str:
+    """Return the shared QMenu stylesheet with a single hairline border and 4px grid."""
+    t = p or _active_palette
+    return f"""
+        QMenu {{
+            background-color: {t.bg_surface};
+            border: 1px solid {t.border};
+            border-radius: 8px;
+            padding: 4px;
+        }}
+        QMenu::item {{
+            padding: 6px 20px 6px 12px;
+            border-radius: 4px;
+            color: {t.text_main};
+        }}
+        QMenu::item:selected {{
+            background-color: {t.bg_raised};
+            color: {t.text_main};
+        }}
+    """
+
+
+def style_menu(menu: QMenu) -> QMenu:
+    """Configure a QMenu popup window with clean transparent corners."""
+    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    menu.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+    return menu
 
 
 class ToggleSwitch(QCheckBox):
@@ -457,6 +546,7 @@ QLineEdit:disabled, QTextEdit:disabled, QComboBox:disabled, QSpinBox:disabled, Q
 
 /* Dropdowns / ComboBox */
 QComboBox {{
+    combobox-popup: 0;
     padding: 8px 12px;
 }}
 
@@ -479,6 +569,13 @@ QComboBox::down-arrow {{
     image: url({t.chevron_url});
     width: 14px;
     height: 14px;
+}}
+
+QComboBoxPrivateContainer {{
+    background-color: transparent;
+    border: none;
+    margin: 0px;
+    padding: 0px;
 }}
 
 QComboBox QAbstractItemView,
@@ -510,6 +607,38 @@ QComboBox QAbstractItemView::item:selected,
 QComboBox QListView::item:selected {{
     background-color: {t.primary};
     color: {t.primary_text};
+}}
+
+QComboBox QAbstractItemView #qt_scrollarea_vcontainer,
+QComboBox QListView #qt_scrollarea_vcontainer {{
+    background-color: transparent;
+    border: none;
+}}
+
+QComboBox QAbstractItemView QScrollBar:vertical,
+QComboBox QListView QScrollBar:vertical {{
+    background: transparent;
+    width: 6px;
+    margin: 4px 2px 4px 0px;
+}}
+
+QComboBox QAbstractItemView QScrollBar::handle:vertical,
+QComboBox QListView QScrollBar::handle:vertical {{
+    background: {t.border_light};
+    min-height: 24px;
+    border-radius: 3px;
+}}
+
+QComboBox QAbstractItemView QScrollBar::handle:vertical:hover,
+QComboBox QListView QScrollBar::handle:vertical:hover {{
+    background: {t.text_muted};
+}}
+
+QComboBox QAbstractItemView QScrollBar::add-line:vertical,
+QComboBox QAbstractItemView QScrollBar::sub-line:vertical,
+QComboBox QListView QScrollBar::add-line:vertical,
+QComboBox QListView QScrollBar::sub-line:vertical {{
+    height: 0px;
 }}
 
 QComboBox QLineEdit {{
@@ -800,6 +929,8 @@ QStatusBar {{
     font-size: 12px;
     padding: 2px 12px;
 }}
+
+{menu_stylesheet(t)}
 """
 
 

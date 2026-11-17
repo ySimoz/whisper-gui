@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListView,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -75,6 +74,7 @@ from whisper_gui.ui.theme import (
     load_tinted_pixmap,
     load_ui_icon,
     set_theme,
+    style_combobox,
 )
 from whisper_gui.ui.track_list_widget import TrackListWidget
 from whisper_gui.ui.transcript_view import TranscriptView
@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
         self.multi_track_widget = QWidget()
         self.multi_track_widget.hide()
         self.combo_active_track = QComboBox()
-        self.combo_active_track.setView(QListView())
+        style_combobox(self.combo_active_track)
         self.combo_active_track.currentIndexChanged.connect(self._on_combo_track_changed)
         self.btn_add_another = QPushButton(tr("main.add_files_button"))
         self.btn_add_another.clicked.connect(self.track_list._on_add_files_clicked)

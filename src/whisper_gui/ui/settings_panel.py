@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListView,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -41,6 +40,7 @@ from whisper_gui.ui.theme import (
     get_palette,
     get_theme_name,
     load_ui_icon,
+    style_combobox,
     swatch_icon,
 )
 from whisper_gui.worker import ModelDownloadWorker
@@ -112,7 +112,7 @@ class ThreadComboBox(QComboBox):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setView(QListView())
+        style_combobox(self)
         self.currentIndexChanged.connect(self._emit_value_changed)
 
     def _emit_value_changed(self) -> None:
@@ -217,7 +217,7 @@ class SettingsPanel(QWidget):
         self._add_field_group(layout, "settings.color_theme", theme_row)
 
         self.combo_app_language = QComboBox()
-        self.combo_app_language.setView(QListView())
+        style_combobox(self.combo_app_language)
         for lang_code, lang_label in SUPPORTED_APP_LANGUAGES:
             self.combo_app_language.addItem(lang_label, lang_code)
         self.combo_app_language.setFixedHeight(36)
@@ -230,7 +230,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(self._make_section_label("settings.sec_recognition"))
 
         self.combo_model = QComboBox()
-        self.combo_model.setView(QListView())
+        style_combobox(self.combo_model)
         for label, model_id in SUPPORTED_MODELS:
             key = _MODEL_KEY_MAP.get(model_id)
             self.combo_model.addItem(tr(key) if key else label, model_id)
@@ -274,7 +274,7 @@ class SettingsPanel(QWidget):
         self._add_field_group(layout, "settings.whisper_model", model_group)
 
         self.combo_lang = QComboBox()
-        self.combo_lang.setView(QListView())
+        style_combobox(self.combo_lang)
         for label, code in SUPPORTED_LANGUAGES:
             key = _LANGUAGE_KEY_MAP.get(code)
             self.combo_lang.addItem(tr(key) if key else label, code)
@@ -285,7 +285,7 @@ class SettingsPanel(QWidget):
         dev_row = QHBoxLayout()
         dev_row.setSpacing(8)
         self.combo_device = QComboBox()
-        self.combo_device.setView(QListView())
+        style_combobox(self.combo_device)
         if sys.platform == "darwin":
             self.combo_device.addItem(tr("settings.device_cpu_mac"), "cpu")
         else:
@@ -296,7 +296,7 @@ class SettingsPanel(QWidget):
         dev_row.addWidget(self.combo_device, stretch=2)
 
         self.combo_compute = QComboBox()
-        self.combo_compute.setView(QListView())
+        style_combobox(self.combo_compute)
         self.combo_compute.addItem(tr("settings.compute_int8"), "int8")
         self.combo_compute.addItem(tr("settings.compute_float16"), "float16")
         self.combo_compute.addItem(tr("settings.compute_float32"), "float32")
@@ -348,7 +348,7 @@ class SettingsPanel(QWidget):
         self._add_field_group(layout, "settings.output_folder", out_row)
 
         self.combo_export_format = QComboBox()
-        self.combo_export_format.setView(QListView())
+        style_combobox(self.combo_export_format)
         for fmt_code, fmt_key in _EXPORT_FORMAT_KEYS:
             self.combo_export_format.addItem(tr(fmt_key), fmt_code)
         self.combo_export_format.setCurrentIndex(0)

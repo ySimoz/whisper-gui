@@ -56,7 +56,13 @@ from whisper_gui.models import (
     TranscriptSegment,
 )
 from whisper_gui.platform_utils import open_path_in_os, reveal_file_in_os
-from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
+from whisper_gui.ui.theme import (
+    fixed_mono_font,
+    get_palette,
+    load_ui_icon,
+    menu_stylesheet,
+    style_menu,
+)
 
 
 class TranscriptView(QFrame):
@@ -164,7 +170,7 @@ class TranscriptView(QFrame):
         self.btn_polish_preset.setObjectName("btn_polish_preset")
         self.btn_polish_preset.setFixedSize(32, 32)
         self.btn_polish_preset.setIconSize(QSize(14, 14))
-        self.polish_preset_menu = QMenu(self)
+        self.polish_preset_menu = style_menu(QMenu(self))
         self.polish_preset_group = QActionGroup(self)
         self.polish_preset_group.setExclusive(True)
         self.polish_preset_actions: dict[str, QAction] = {}
@@ -314,7 +320,7 @@ class TranscriptView(QFrame):
         self.btn_export.setEnabled(False)
         self.btn_open_docx = self.btn_export  # Compatibility alias
 
-        self.export_menu = QMenu(self)
+        self.export_menu = style_menu(QMenu(self))
 
         self._act_docx = self.export_menu.addAction(tr("transcript.menu_docx"))
         self._act_docx.triggered.connect(lambda: self._on_export_format("docx"))
@@ -568,23 +574,7 @@ class TranscriptView(QFrame):
         self.lbl_polish_error.setStyleSheet(f"color: {p.negative}; font-size: 12px;")
         self.btn_polish_err_close.setIcon(load_ui_icon("close"))
 
-        menu_style = f"""
-            QMenu {{
-                background-color: {p.bg_surface};
-                border: 1px solid {p.border};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px 6px 12px;
-                border-radius: 4px;
-                color: {p.text_main};
-            }}
-            QMenu::item:selected {{
-                background-color: {p.bg_raised};
-                color: {p.text_main};
-            }}
-        """
+        menu_style = menu_stylesheet(p)
         self.polish_preset_menu.setStyleSheet(menu_style)
 
         self.txt_display.setStyleSheet(f"""
