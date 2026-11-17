@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListView,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -38,7 +37,7 @@ from whisper_gui.llm_cleaner import (
     test_llm_connection,
 )
 from whisper_gui.models import LLMConfig
-from whisper_gui.ui.theme import ToggleSwitch, get_palette
+from whisper_gui.ui.theme import ToggleSwitch, get_palette, style_combobox
 
 
 class InstructionEditorDialog(QDialog):
@@ -143,7 +142,7 @@ class LLMPanel(QWidget):
 
         # Provider
         self.combo_provider = QComboBox()
-        self.combo_provider.setView(QListView())
+        style_combobox(self.combo_provider)
         for provider_id in ("DeepSeek", "Anthropic (Claude)", "OpenAI", "Groq", "Custom"):
             label = tr("llm.provider_custom") if provider_id == "Custom" else provider_id
             self.combo_provider.addItem(label, provider_id)
@@ -153,7 +152,7 @@ class LLMPanel(QWidget):
 
         # Model Name
         self.combo_model = QComboBox()
-        self.combo_model.setView(QListView())
+        style_combobox(self.combo_model)
         self.combo_model.setEditable(True)
         self.combo_model.setFixedHeight(36)
         self.combo_model.currentTextChanged.connect(self._on_setting_changed)
@@ -200,7 +199,7 @@ class LLMPanel(QWidget):
 
         # Prompt Instructions
         self.combo_preset = QComboBox()
-        self.combo_preset.setView(QListView())
+        style_combobox(self.combo_preset)
         self.combo_preset.setFixedHeight(36)
         self._sync_preset_combo()
         self.combo_preset.currentIndexChanged.connect(self._on_preset_index_changed)

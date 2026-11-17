@@ -1849,3 +1849,114 @@ def test_waveform_scrubber_and_trim_dialog(qtbot, tmp_path):
     assert not pm.isNull() and pm.width() > 0 and pm.height() > 0
 
     dialog.close()
+
+
+def test_combobox_popups_single_frame_and_consistent_height(qtbot):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QComboBox, QFrame, QListView, QStyle, QStyleOptionComboBox
+    from whisper_gui.i18n import get_language, set_language
+    from whisper_gui.ui.theme import BLUSH_PALETTE, GRAPHITE_PALETTE, build_stylesheet, get_theme_name, set_theme
+
+    orig_lang = get_language()
+    orig_theme = get_theme_name()
+
+    for pal in (GRAPHITE_PALETTE, BLUSH_PALETTE):
+        qss = build_stylesheet(pal)
+        assert "combobox-popup: 0;" in qss
+        assert "QComboBoxPrivateContainer" in qss
+        assert "#qt_scrollarea_vcontainer" in qss
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.resize(1100, 820)
+    win.show()
+    win._open_settings_page()
+    QApplication.processEvents()
+
+    try:
+        combos = [
+            win.settings_panel.combo_app_language,
+            win.settings_panel.combo_model,
+            win.settings_panel.combo_lang,
+            win.settings_panel.combo_device,
+            win.settings_panel.combo_compute,
+            win.settings_panel.spin_threads,
+            win.settings_panel.combo_export_format,
+            win.llm_panel.combo_provider,
+            win.llm_panel.combo_model,
+            win.llm_panel.combo_preset,
+            win.combo_active_track,
+        ]
+
+        for combo in combos:
+            assert isinstance(combo, QComboBox)
+            assert combo.maxVisibleItems() == 10
+            assert isinstance(combo.view(), QListView)
+            assert combo.view().frameShape() == QFrame.Shape.NoFrame
+            opt = QStyleOptionComboBox()
+            combo.initStyleOption(opt)
+            assert combo.style().styleHint(QStyle.StyleHint.SH_ComboBox_Popup, opt, combo) == 0
+
+            container = combo.view().parentWidget()
+            assert container is not None
+            assert container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            assert bool(container.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+            assert container.contentsMargins().isNull()
+
+        # Verify invariant popup size, exact combo width, zero container gap, and scrollbar behavior
+        for theme_name in ("graphite", "blush"):
+            set_theme(theme_name)
+            win.apply_theme()
+            QApplication.processEvents()
+
+            for combo in (
+                win.settings_panel.combo_app_language,
+                win.settings_panel.combo_model,
+                win.settings_panel.combo_lang,
+                win.llm_panel.combo_model,
+            ):
+                orig_idx = combo.currentIndex()
+                indices = (
+                    [0, combo.count() // 2, combo.count() - 1]
+                    if combo.count() >= 3
+                    else list(range(combo.count()))
+                )
+                geometries = []
+                combo.blockSignals(True)
+                try:
+                    for idx in indices:
+                        combo.setCurrentIndex(idx)
+                        combo.showPopup()
+                        QApplication.processEvents()
+
+                        view = combo.view()
+                        container = view.parentWidget()
+                        assert container.isVisible()
+                        assert container.width() == combo.width()
+                        assert view.geometry() == container.rect()
+                        assert not any(
+                            ch.isVisible()
+                            for ch in container.children()
+                            if "Scroller" in ch.metaObject().className() and hasattr(ch, "isVisible")
+                        )
+                        assert view.verticalScrollBar().isVisible() == (combo.count() > combo.maxVisibleItems())
+                        geometries.append((container.x(), container.y(), container.width(), container.height()))
+                        combo.hidePopup()
+                        QApplication.processEvents()
+                finally:
+                    combo.setCurrentIndex(orig_idx)
+                    combo.blockSignals(False)
+
+                assert len(set(geometries)) == 1, f"{combo} popup geometry varied by selected index: {geometries}"
+
+        for menu in (
+            win.transcript_view.export_menu,
+            win.transcript_view.polish_preset_menu,
+            win.track_list.export_all_menu,
+        ):
+            assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            assert bool(menu.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+    finally:
+        set_language(orig_lang)
+        set_theme(orig_theme)
+        win.close()

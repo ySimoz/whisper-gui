@@ -24,7 +24,13 @@ from PySide6.QtWidgets import (
 from whisper_gui.audio_utils import AudioProbeError, format_seconds, get_audio_info
 from whisper_gui.i18n import display_track_status, tr
 from whisper_gui.models import AudioTrack, TrackStatus
-from whisper_gui.ui.theme import fixed_mono_font, get_palette, load_ui_icon
+from whisper_gui.ui.theme import (
+    fixed_mono_font,
+    get_palette,
+    load_ui_icon,
+    menu_stylesheet,
+    style_menu,
+)
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma",
@@ -137,7 +143,7 @@ class TrackListWidget(QFrame):
         self.btn_export_all.setFixedHeight(32)
         self.btn_export_all.setEnabled(False)
 
-        self.export_all_menu = QMenu(self)
+        self.export_all_menu = style_menu(QMenu(self))
         self._act_all_docx = self.export_all_menu.addAction(tr("transcript.menu_docx"))
         self._act_all_docx.triggered.connect(lambda: self.export_all_requested.emit("docx", None))
         self._act_all_pdf = self.export_all_menu.addAction(tr("transcript.menu_pdf"))
@@ -230,23 +236,7 @@ class TrackListWidget(QFrame):
                 height: 12px;
             }}
         """)
-        self.export_all_menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {p.bg_surface};
-                border: 1px solid {p.border};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px 6px 12px;
-                border-radius: 4px;
-                color: {p.text_main};
-            }}
-            QMenu::item:selected {{
-                background-color: {p.bg_raised};
-                color: {p.text_main};
-            }}
-        """)
+        self.export_all_menu.setStyleSheet(menu_stylesheet(p))
         for row, track in enumerate(self._tracks):
             item_status = self.table.item(row, 2)
             if item_status is not None:
