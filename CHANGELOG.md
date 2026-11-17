@@ -1,16 +1,5 @@
 # Changelog
 
-## v0.2.7
-
-### Fixes
-- **Single-Frame Dropdown Popups & Cross-Platform CI Stability:** Replaced per-widget `QProxyStyle` with `_ComboContainerPopupFilter` (`QEvent.Show`/`Move`/`Resize` alignment) and QSS `combobox-popup: 0` inside `style_combobox()`, eliminating the Linux Qt 6.12 `QStyleSheetStyle` teardown crash, parented `combo_active_track` inside `MainWindow`, and kept macOS single-frame popup geometry invariant across selected options without global QSS test leakage.
-
-## v0.2.6
-
-### Fixes
-- **Single-Frame Dropdown Popups & Consistent Menu Heights:** Fixed native macOS `QComboBox` popups rendering an outer dark `QComboBoxPrivateContainer` frame behind the styled `QListView` via `style_combobox()` so dropdown height and placement stay identical regardless of which option is selected (such as the Language selector), and unified `QMenu` popup styling.
-- **Cross-Platform `TrimAudioDialog` Layout (Windows & Linux CI):** Separated `RangeSelectorWidget` mode radios and selected-duration readout into stacked rows with `TrimAudioDialog._sync_dialog_size()` so Italian labels never clip under wider Windows Segoe UI / Linux DejaVu Sans font metrics.
-
 ## v0.2.5
 
 ### What's New
@@ -20,8 +9,9 @@
 - **Live Transcription ETA & Speed Telemetry:** Displays active playback ratio (`x`) and remaining ETA while transcribing.
 
 ### Refinements & Fixes
-- **Inline Edit Persistence:** Preserved manual raw transcript edits across `Raw`/`Polished` tab switches, track switching, History reopening, and `.docx`/multi-format exports (`raw_segments_stale`).
-- **UI/UX & `unslop` Pass:** Unified `32px` button heights and `8px` radii, standardized `4px`/`12px`/`24px` panel spacing, removed nested borders and duplicate completion/preset labels, widened `TrimAudioDialog` (`680x380`) to eliminate Italian text clipping, and kept `RangeSelectorWidget` synced on live theme switches.
+- **Single-Frame Dropdown Popups & Consistent Heights:** Fixed macOS `QComboBox` popups rendering an outer dark `QComboBoxPrivateContainer` window border and inconsistent option-dependent height via `style_combobox()`, `_ComboContainerPopupFilter`, and unified `style_menu()` styling across settings, LLM, track, and transcript menus.
+- **Cross-Platform `TrimAudioDialog` & Media Lifecycle Stability:** Stacked `RangeSelectorWidget` mode radios, time controls, and length readout with `_sync_dialog_size()` to prevent clipping under Windows/Linux fonts, guarded `QMediaPlayer` against empty audio files, and excluded `PySide6==6.12.0` on Python `< 3.12` to prevent CPython `bool_dealloc` teardown crashes.
+- **Inline Edit Persistence & UI Cleanup:** Preserved manual raw transcript edits across `Raw`/`Polished` tabs, track switches, History reopening, and multi-format exports (`raw_segments_stale`); standardized `32px` button heights, `8px` radii, and `4px`/`12px`/`24px` spacing across panels.
 
 ## v0.2.4
 
