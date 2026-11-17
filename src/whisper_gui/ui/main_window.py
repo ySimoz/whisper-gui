@@ -438,9 +438,9 @@ class MainWindow(QMainWindow):
         card_layout.addLayout(actions_row)
 
         # Hidden compatibility controls
-        self.multi_track_widget = QWidget()
+        self.multi_track_widget = QWidget(self)
         self.multi_track_widget.hide()
-        self.combo_active_track = QComboBox()
+        self.combo_active_track = QComboBox(self.multi_track_widget)
         style_combobox(self.combo_active_track)
         self.combo_active_track.currentIndexChanged.connect(self._on_combo_track_changed)
         self.btn_add_another = QPushButton(tr("main.add_files_button"))

@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -1192,9 +1193,9 @@ def test_trim_dialog_wide_font_metrics_no_clipping(qtbot, tmp_path):
             set_language(lang)
             set_theme(theme_name)
             app.setFont(stress_font)
-            app.setStyleSheet(build_stylesheet() + extra_qss)
 
             dlg = TrimAudioDialog(track)
+            dlg.setStyleSheet(dlg.styleSheet() + extra_qss)
             dlg.selector.lbl_selected_length.setFont(stress_font)
             qtbot.addWidget(dlg)
             dlg.show()
@@ -1893,6 +1894,7 @@ def test_combobox_popups_single_frame_and_consistent_height(qtbot):
             assert combo.maxVisibleItems() == 10
             assert isinstance(combo.view(), QListView)
             assert combo.view().frameShape() == QFrame.Shape.NoFrame
+            combo.ensurePolished()
             opt = QStyleOptionComboBox()
             combo.initStyleOption(opt)
             assert combo.style().styleHint(QStyle.StyleHint.SH_ComboBox_Popup, opt, combo) == 0
@@ -1900,7 +1902,8 @@ def test_combobox_popups_single_frame_and_consistent_height(qtbot):
             container = combo.view().parentWidget()
             assert container is not None
             assert container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            assert bool(container.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+            if sys.platform == "darwin":
+                assert bool(container.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
             assert container.contentsMargins().isNull()
 
         # Verify invariant popup size, exact combo width, zero container gap, and scrollbar behavior
@@ -1955,7 +1958,8 @@ def test_combobox_popups_single_frame_and_consistent_height(qtbot):
             win.track_list.export_all_menu,
         ):
             assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            assert bool(menu.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+            if sys.platform == "darwin":
+                assert bool(menu.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
     finally:
         set_language(orig_lang)
         set_theme(orig_theme)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QListView,
     QMenu,
-    QProxyStyle,
     QStyle,
     QStyleOptionButton,
 )
@@ -237,33 +236,46 @@ def fixed_mono_font(point_size: int | None = None) -> QFont:
     return font
 
 
-class _ComboPopupStyle(QProxyStyle):
-    """Force non-native list popup geometry aligned 4px below/above the combobox."""
+class _ComboContainerPopupFilter(QObject):
+    """Snap QComboBox popup container to exact combo width and a 4px vertical gap without QProxyStyle."""
 
-    def styleHint(self, hint, option=None, widget=None, returnData=None):
-        if hint == QStyle.StyleHint.SH_ComboBox_Popup:
-            return 0
-        return super().styleHint(hint, option, widget, returnData)
+    def __init__(self, combo: QComboBox) -> None:
+        super().__init__(combo)
+        self._combo = combo
+        self._guard = False
 
-    def subControlRect(self, cc, opt, sc, widget=None):
-        if (
-            cc == QStyle.ComplexControl.CC_ComboBox
-            and sc == QStyle.SubControl.SC_ComboBoxListBoxPopup
-            and opt is not None
-        ):
-            # Override QMacStyle's (-7, +1, w-18, 1) inset so popup matches combo width with a 4px gap.
-            return QRect(0, -4, opt.rect.width(), opt.rect.height() + 9)
-        return super().subControlRect(cc, opt, sc, widget)
+    def _snap(self, container) -> None:
+        if self._guard:
+            return
+        combo = self._combo
+        if combo is None:
+            return
+        self._guard = True
+        try:
+            top_left = combo.mapToGlobal(QPoint(0, 0))
+            w = combo.width()
+            h = container.height()
+            if w <= 0 or h <= 0:
+                return
+            below_y = top_left.y() + combo.height() + 4
+            above_y = top_left.y() - h - 4
+            flipped_above = (container.y() + h / 2.0) < (top_left.y() + combo.height() / 2.0)
+            new_y = above_y if flipped_above else below_y
+            target = (top_left.x(), new_y, w, h)
+            current = (container.x(), container.y(), container.width(), container.height())
+            if current != target:
+                container.setGeometry(*target)
+        finally:
+            self._guard = False
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Move, QEvent.Type.Resize):
+            self._snap(obj)
+        return False
 
 
 def style_combobox(combo: QComboBox, max_visible: int = 10) -> QComboBox:
     """Configure a QComboBox for single-frame, index-invariant popup rendering."""
-    if not combo.property("_combo_popup_styled"):
-        popup_style = _ComboPopupStyle()
-        popup_style.setParent(combo)
-        combo.setStyle(popup_style)
-        combo.setProperty("_combo_popup_styled", True)
-
     view = combo.view()
     if not isinstance(view, QListView):
         view = QListView()
@@ -278,12 +290,16 @@ def style_combobox(combo: QComboBox, max_visible: int = 10) -> QComboBox:
     container = view.parentWidget()
     if container is not None:
         container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        container.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
+        container.setWindowFlags(container.windowFlags() | Qt.WindowType.NoDropShadowWindowHint)
         if isinstance(container, QFrame):
             container.setFrameShape(QFrame.Shape.NoFrame)
         container.setContentsMargins(0, 0, 0, 0)
         if container.layout() is not None:
             container.layout().setContentsMargins(0, 0, 0, 0)
+        if not combo.property("_combo_container_filter"):
+            popup_filter = _ComboContainerPopupFilter(combo)
+            container.installEventFilter(popup_filter)
+            combo.setProperty("_combo_container_filter", popup_filter)
 
     return combo
 

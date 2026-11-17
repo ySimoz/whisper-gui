@@ -1,9 +1,14 @@
 # Changelog
 
+## v0.2.7
+
+### Fixes
+- **Single-Frame Dropdown Popups & Cross-Platform CI Stability:** Replaced per-widget `QProxyStyle` with `_ComboContainerPopupFilter` (`QEvent.Show`/`Move`/`Resize` alignment) and QSS `combobox-popup: 0` inside `style_combobox()`, eliminating the Linux Qt 6.12 `QStyleSheetStyle` teardown crash, parented `combo_active_track` inside `MainWindow`, and kept macOS single-frame popup geometry invariant across selected options without global QSS test leakage.
+
 ## v0.2.6
 
 ### Fixes
-- **Single-Frame Dropdown Popups & Consistent Menu Heights:** Fixed native macOS `QComboBox` popups rendering an outer dark `QComboBoxPrivateContainer` frame behind the styled `QListView`, added `combobox-popup: 0` via `_ComboPopupStyle` + `style_combobox()` so dropdown height and placement stay identical regardless of which option is selected (such as the Language selector), and unified `QMenu` popup styling.
+- **Single-Frame Dropdown Popups & Consistent Menu Heights:** Fixed native macOS `QComboBox` popups rendering an outer dark `QComboBoxPrivateContainer` frame behind the styled `QListView` via `style_combobox()` so dropdown height and placement stay identical regardless of which option is selected (such as the Language selector), and unified `QMenu` popup styling.
 - **Cross-Platform `TrimAudioDialog` Layout (Windows & Linux CI):** Separated `RangeSelectorWidget` mode radios and selected-duration readout into stacked rows with `TrimAudioDialog._sync_dialog_size()` so Italian labels never clip under wider Windows Segoe UI / Linux DejaVu Sans font metrics.
 
 ## v0.2.5
