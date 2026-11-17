@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSize, QThread, QTime, QUrl, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QMouseEvent, QPainter, QPen, QPolygonF
+from PySide6.QtGui import QCloseEvent, QColor, QMouseEvent, QPainter, QPen, QPolygonF, QShowEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QTimeEdit,
     QVBoxLayout,
     QWidget,
@@ -361,7 +362,7 @@ class RangeSelectorWidget(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Two-row control card: Mode + duration on row 1, Start/End timecodes on row 2
+        # Three-row control card: Mode radios on row 1, Start/End on row 2, readout on row 3
         self.top_bar = QFrame()
         self.top_bar.setObjectName("range_top_bar")
         top_vbox = QVBoxLayout(self.top_bar)
@@ -369,11 +370,13 @@ class RangeSelectorWidget(QWidget):
         top_vbox.setSpacing(8)
 
         mode_row = QHBoxLayout()
-        mode_row.setSpacing(12)
+        mode_row.setSpacing(16)
 
         self.btn_group_mode = QButtonGroup(self)
         self.radio_full = QRadioButton(tr("range.full_audio"))
         self.radio_custom = QRadioButton(tr("range.custom_range"))
+        self.radio_full.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.radio_custom.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         self.radio_full.setChecked(True)
 
         self.btn_group_mode.addButton(self.radio_full, 0)
@@ -382,10 +385,6 @@ class RangeSelectorWidget(QWidget):
         mode_row.addWidget(self.radio_full)
         mode_row.addWidget(self.radio_custom)
         mode_row.addStretch()
-
-        self.lbl_selected_length = QLabel(tr("range.selected_zero"))
-        self.lbl_selected_length.setFont(fixed_mono_font(12))
-        mode_row.addWidget(self.lbl_selected_length)
         top_vbox.addLayout(mode_row)
 
         time_row = QHBoxLayout()
@@ -418,6 +417,15 @@ class RangeSelectorWidget(QWidget):
         time_row.addStretch()
         top_vbox.addLayout(time_row)
 
+        readout_row = QHBoxLayout()
+        readout_row.setSpacing(8)
+        self.lbl_selected_length = QLabel(tr("range.selected_zero"))
+        self.lbl_selected_length.setFont(fixed_mono_font(12))
+        self.lbl_selected_length.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        readout_row.addWidget(self.lbl_selected_length)
+        readout_row.addStretch()
+        top_vbox.addLayout(readout_row)
+
         layout.addWidget(self.top_bar)
 
         # Waveform scrubber + position info
@@ -429,6 +437,7 @@ class RangeSelectorWidget(QWidget):
 
         self.lbl_slider_info = QLabel(tr("range.slider_initial"))
         self.lbl_slider_info.setFont(fixed_mono_font(11))
+        self.lbl_slider_info.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         slider_layout.addWidget(self.lbl_slider_info)
 
         layout.addLayout(slider_layout)
@@ -475,6 +484,7 @@ class RangeSelectorWidget(QWidget):
             self.lbl_slider_info.setText(tr("range.position_zero"))
         else:
             self._update_readout()
+        self.updateGeometry()
 
     def cancel_waveform_load(self) -> None:
         """Stop any in-flight background waveform extraction workers safely."""
@@ -662,6 +672,7 @@ class RangeSelectorWidget(QWidget):
             self.lbl_slider_info.setText(
                 tr("range.slider_custom", start=s_str, end=e_str, duration=d_str, total=t_str)
             )
+        self.updateGeometry()
 
     @staticmethod
     def _set_qtime(time_widget: QTimeEdit, seconds: float) -> None:
@@ -759,6 +770,22 @@ class TrimAudioDialog(QDialog):
 
         self.selector.range_changed.connect(self._on_range_changed)
         self._init_player()
+        self._sync_dialog_size()
+
+    def _sync_dialog_size(self) -> None:
+        """Ensure dialog bounds always fit current font metrics without clipping."""
+        self.ensurePolished()
+        if self.layout() is not None:
+            self.layout().activate()
+        hint = self.sizeHint().expandedTo(self.minimumSizeHint())
+        min_w = max(656, hint.width())
+        min_h = max(380, hint.height())
+        self.setMinimumSize(min_w, min_h)
+        self.resize(max(680, self.width(), min_w), max(408, self.height(), min_h))
+
+    def showEvent(self, event: QShowEvent) -> None:
+        self._sync_dialog_size()
+        super().showEvent(event)
 
     def _init_player(self) -> None:
         has_media = False

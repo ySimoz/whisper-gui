@@ -1167,6 +1167,61 @@ def test_range_selector_theme_and_trim_dialog_italian_no_clipping(qtbot, tmp_pat
         set_theme(prev_theme)
 
 
+def test_trim_dialog_wide_font_metrics_no_clipping(qtbot, tmp_path):
+    from PySide6.QtGui import QFont
+    from whisper_gui.i18n import get_language, set_language
+    from whisper_gui.ui.theme import build_stylesheet, get_theme_name, set_theme
+
+    app = QApplication.instance()
+    prev_lang = get_language()
+    prev_theme = get_theme_name()
+    prev_font = app.font()
+    prev_stylesheet = app.styleSheet()
+    try:
+        p1 = tmp_path / "wide_metrics.wav"
+        p1.touch()
+        track = AudioTrack(p1, AudioInfo(path=p1, filename="wide_metrics.wav", duration=185.0))
+
+        # Simulate Windows/Linux wide UI + monospace metrics (>= 320px hints) and extreme wide metrics
+        scenarios = [
+            ("it", "blush", QFont("Courier New", 16), "\nQRadioButton { font-size: 20px; } QLabel { font-size: 16px; }"),
+            ("en", "graphite", QFont("DejaVu Sans", 14), "\nQRadioButton { font-size: 20px; } QLabel { font-size: 16px; }"),
+            ("it", "graphite", QFont("Courier New", 18), "\nQRadioButton { font-size: 26px; } QLabel { font-size: 18px; }"),
+        ]
+        for lang, theme_name, stress_font, extra_qss in scenarios:
+            set_language(lang)
+            set_theme(theme_name)
+            app.setFont(stress_font)
+            app.setStyleSheet(build_stylesheet() + extra_qss)
+
+            dlg = TrimAudioDialog(track)
+            dlg.selector.lbl_selected_length.setFont(stress_font)
+            qtbot.addWidget(dlg)
+            dlg.show()
+            QApplication.processEvents()
+
+            sel = dlg.selector
+            for w in (
+                sel.radio_full,
+                sel.radio_custom,
+                sel.lbl_selected_length,
+                sel.lbl_slider_info,
+                sel.time_start,
+                sel.time_end,
+            ):
+                assert w.width() >= w.sizeHint().width(), f"{lang}/{theme_name} clipped {w}: {w.width()} < {w.sizeHint().width()}"
+
+            # Verify non-overlapping row structure inside top_bar
+            assert sel.radio_custom.x() >= sel.radio_full.x() + sel.radio_full.width()
+            assert sel.lbl_selected_length.y() >= sel.time_start.y() + sel.time_start.height()
+            dlg.close()
+    finally:
+        app.setFont(prev_font)
+        app.setStyleSheet(prev_stylesheet)
+        set_language(prev_lang)
+        set_theme(prev_theme)
+
+
 def test_llm_panel_presets_and_custom_md_persistence(qtbot, tmp_path, monkeypatch):
     from PySide6.QtCore import QSettings
     from whisper_gui.i18n import get_language, set_language
