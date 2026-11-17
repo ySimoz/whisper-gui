@@ -885,15 +885,8 @@ QSlider::handle:horizontal:hover {{
 
 /* Splitters */
 QSplitter::handle {{
-    background-color: {t.border};
-}}
-
-QSplitter::handle:horizontal {{
-    width: 1px;
-}}
-
-QSplitter::handle:vertical {{
-    height: 1px;
+    background-color: transparent;
+    border: none;
 }}
 
 /* Scrollbars */

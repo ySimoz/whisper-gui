@@ -312,16 +312,17 @@ class MainWindow(QMainWindow):
         # 2. Main Content Splitter (Lateral Drawer on left | Hero Workspace)
         self.main_splitter = QSplitter(Qt.Horizontal)
         self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(12)
 
         # 2a. Lateral Tracks Drawer
         self.tracks_drawer = QFrame()
         self.tracks_drawer.setObjectName("tracks_drawer")
-        self.tracks_drawer.setMinimumWidth(348)
+        self.tracks_drawer.setMinimumWidth(360)
         self.tracks_drawer.setMaximumWidth(480)
         self.queue_drawer = self.tracks_drawer  # backward compatibility alias
 
         drawer_vbox = QVBoxLayout(self.tracks_drawer)
-        drawer_vbox.setContentsMargins(12, 12, 12, 12)
+        drawer_vbox.setContentsMargins(16, 16, 16, 16)
         drawer_vbox.setSpacing(12)
 
         drawer_hdr = QHBoxLayout()
@@ -503,6 +504,7 @@ class MainWindow(QMainWindow):
         # Connect Signals
         self.track_list.track_selected.connect(self._on_track_selected)
         self.track_list.track_count_changed.connect(self._on_track_count_changed)
+        self.track_list.track_renamed.connect(self._on_track_renamed)
         self.track_list.export_all_requested.connect(self._on_export_all_requested)
         self.range_selector.range_changed.connect(self._on_range_changed)
         self.settings_panel.free_ram_requested.connect(self._on_free_ram_clicked)
@@ -568,6 +570,17 @@ class MainWindow(QMainWindow):
         self.lbl_drawer_title.setStyleSheet(f"font-weight: 500; font-size: 14px; color: {p.text_main};")
         self.lbl_drawer_count.setStyleSheet(f"color: {p.text_muted};")
         self.btn_close_drawer.setIcon(load_ui_icon("close"))
+        self.btn_close_drawer.setStyleSheet(f"""
+            QPushButton#btn_close_drawer {{
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                padding: 0px;
+            }}
+            QPushButton#btn_close_drawer:hover {{
+                background-color: {p.bg_raised};
+            }}
+        """)
 
         self.lbl_drop_title.setStyleSheet(f"font-size: 14px; font-weight: 500; color: {p.text_main};")
         drop_pixmap = load_tinted_pixmap("upload_icon.svg", 48, p.text_muted)
@@ -924,8 +937,8 @@ class MainWindow(QMainWindow):
             self.combo_active_track.addItem(f"{i + 1}. {t.info.filename}", t.id)
         self.combo_active_track.blockSignals(False)
 
-        if has_tracks and not self._active_track:
-            self._set_active_track(tracks[0])
+        if has_tracks and (not self._active_track or self._active_track not in tracks):
+            self._set_active_track(self.track_list.get_selected_track() or tracks[0])
         elif not has_tracks:
             self._set_active_track(None)
 
@@ -1020,6 +1033,17 @@ class MainWindow(QMainWindow):
     def _on_track_selected(self, track: AudioTrack | None) -> None:
         if track:
             self._set_active_track(track)
+
+    def _on_track_renamed(self, track: AudioTrack) -> None:
+        tracks = self.track_list.get_tracks()
+        self.combo_active_track.blockSignals(True)
+        for i, t in enumerate(tracks):
+            if t.id == track.id and i < self.combo_active_track.count():
+                self.combo_active_track.setItemText(i, f"{i + 1}. {t.info.filename}")
+                break
+        self.combo_active_track.blockSignals(False)
+        if self._active_track is track:
+            self._update_active_track_labels(track)
 
     def _on_range_changed(self, track_id: str) -> None:
         if self._active_track:

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.6
+
+### What's New
+- **Right-Click Track Actions (`Rename` & `Remove`):** Replaced the sidebar `Remove` button with a themed right-click context menu on queue rows (`Rename`, `Remove`) synced across the drawer, active track card, and track selector, and removed `+` prefixes from `Add Files` and `Add Folder`.
+
+### Refinements & Fixes
+- **Two-Line Tracks Drawer Hierarchy:** Replaced the nested bordered 3-column queue table with a borderless `_TrackRowDelegate` layout showing full-width track names above mono duration metadata and status dots, eliminating horizontal truncation, column headers, and zebra stripes.
+- **Uniform Main Page Card Spacing:** Removed the vertical `QSplitter` separator line and widened `main_splitter` to a `12px` transparent gutter matching the rest of the workspace.
+
 ## v0.2.5
 
 ### What's New

@@ -177,29 +177,77 @@ def test_transcript_view(qtbot, tmp_path):
 
 
 def test_track_list_widget(qtbot, tmp_path):
-    # Create sample wav file
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QFrame
+
+    # Create sample wav files
     sample_file = tmp_path / "test_track.wav"
     cmd = [get_ffmpeg_cmd(), "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", str(sample_file)]
     subprocess.run(cmd, check=True, capture_output=True)
+    second_file = tmp_path / "second_track.wav"
+    subprocess.run([get_ffmpeg_cmd(), "-y", "-f", "lavfi", "-i", "sine=frequency=660:duration=2", str(second_file)], check=True, capture_output=True)
 
     widget = TrackListWidget()
     qtbot.addWidget(widget)
+    widget.show()
 
+    # Toolbar: no Remove button, no '+' icons/prefixes on Add buttons, Clear disabled when empty
+    assert not hasattr(widget, "btn_remove")
+    assert widget.btn_add_files.icon().isNull()
+    assert widget.btn_add_folder.icon().isNull()
+    assert "+" not in widget.btn_add_files.text()
+    assert "+" not in widget.btn_add_folder.text()
+    assert not widget.btn_clear.isEnabled()
+    assert widget.table.frameShape() == QFrame.Shape.NoFrame
+    assert widget.table.horizontalHeader().isHidden()
+    assert widget.table.isColumnHidden(1)
+    assert widget.table.isColumnHidden(2)
+    assert widget.table.isColumnHidden(3)
+    assert widget.build_context_menu(0) is None
     assert len(widget.get_tracks()) == 0
 
-    # Add file
-    widget.add_audio_files([sample_file])
+    # Add files
+    widget.add_audio_files([sample_file, second_file])
     tracks = widget.get_tracks()
-    assert len(tracks) == 1
+    assert len(tracks) == 2
+    assert widget.btn_clear.isEnabled()
     assert tracks[0].info.filename == "test_track.wav"
-    assert widget.table.rowCount() == 1
+    assert widget.table.rowCount() == 2
     assert widget.get_track(tracks[0].id) == tracks[0]
     assert widget.get_track("nonexistent_id") is None
+
+    # Context menu offers Rename and Remove cleanly
+    menu = widget.build_context_menu(0)
+    assert menu is not None
+    assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    action_texts = [a.text() for a in menu.actions()]
+    assert action_texts == ["Rename", "Remove"]
+
+    # Rename via action (and verify cancel/blank leaves filename unchanged)
+    renamed_tracks = []
+    widget.track_renamed.connect(renamed_tracks.append)
+    with patch.object(widget, "_prompt_track_name", return_value=("", True)):
+        assert not widget._rename_track_at(0)
+        assert widget.get_tracks()[0].info.filename == "test_track.wav"
+    with patch.object(widget, "_prompt_track_name", return_value=("Interview Take 1", False)):
+        assert not widget._rename_track_at(0)
+    with patch.object(widget, "_prompt_track_name", return_value=("Interview Take 1", True)):
+        menu.actions()[0].trigger()
+    assert widget.get_tracks()[0].info.filename == "Interview Take 1"
+    assert widget.get_tracks()[0].file_path == sample_file.resolve()
+    assert widget.table.item(0, 0).text() == "Interview Take 1"
+    assert len(renamed_tracks) == 1
+
+    # Remove via context menu action removes only target track
+    menu.actions()[1].trigger()
+    assert len(widget.get_tracks()) == 1
+    assert widget.get_tracks()[0].info.filename == "second_track.wav"
 
     # Clear
     widget.clear_all()
     assert len(widget.get_tracks()) == 0
     assert widget.table.rowCount() == 0
+    assert not widget.btn_clear.isEnabled()
 
 
 def test_llm_panel(qtbot, tmp_path, monkeypatch):
@@ -324,6 +372,7 @@ def test_lateral_tracks_drawer(qtbot):
     window.btn_toggle_drawer.click()
     assert window.tracks_drawer.isVisible()
     assert window.btn_toggle_drawer.isChecked()
+    assert window.main_splitter.handleWidth() == 12
 
     # Close drawer via close button
     close_btns = [b for b in window.tracks_drawer.findChildren(object) if hasattr(b, "objectName") and b.objectName() == "btn_close_drawer"]
@@ -366,6 +415,19 @@ def test_lateral_tracks_drawer(qtbot):
     # Select track 1 in drawer table
     window.track_list.table.selectRow(0)
     assert window.lbl_active_name.text() == "Track 1 of 2: meeting1.mp3"
+
+    # Rename active track via context menu updates active card and compatibility combo
+    with patch.object(window.track_list, "_prompt_track_name", return_value=("Opening Remarks.mp3", True)):
+        menu = window.track_list.build_context_menu(0)
+        assert menu is not None
+        menu.actions()[0].trigger()
+    assert window.lbl_active_name.text() == "Track 1 of 2: Opening Remarks.mp3"
+    assert window.combo_active_track.itemText(0) == "1. Opening Remarks.mp3"
+
+    # Remove track 1 via context menu action updates MainWindow count and active track
+    menu.actions()[1].trigger()
+    assert window.btn_toggle_drawer.text() == "Tracks (1)"
+    assert window.lbl_active_name.text() == "interview.mp3"
 
 
 def test_settings_panel_delete_cached_model(qtbot, tmp_path, monkeypatch):
