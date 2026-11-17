@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.6
+
+### Fixes
+- **Single-Frame Dropdown Popups & Consistent Menu Heights:** Fixed native macOS `QComboBox` popups rendering an outer dark `QComboBoxPrivateContainer` frame behind the styled `QListView`, added `combobox-popup: 0` via `_ComboPopupStyle` + `style_combobox()` so dropdown height and placement stay identical regardless of which option is selected (such as the Language selector), and unified `QMenu` popup styling.
+- **Cross-Platform `TrimAudioDialog` Layout (Windows & Linux CI):** Separated `RangeSelectorWidget` mode radios and selected-duration readout into stacked rows with `TrimAudioDialog._sync_dialog_size()` so Italian labels never clip under wider Windows Segoe UI / Linux DejaVu Sans font metrics.
+
 ## v0.2.5
 
 ### What's New

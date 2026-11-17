@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-232325?style=flat-square&labelColor=141415" alt="Platforms" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-232325?style=flat-square&labelColor=141415" alt="Python 3.10+" />
-  <img src="https://img.shields.io/badge/Tests-114%20Passing-232325?style=flat-square&labelColor=141415" alt="114 Tests Passing" />
+  <img src="https://img.shields.io/badge/Tests-116%20Passing-232325?style=flat-square&labelColor=141415" alt="116 Tests Passing" />
   <img src="https://img.shields.io/badge/License-MIT-232325?style=flat-square&labelColor=141415" alt="MIT License" />
 </p>
 
