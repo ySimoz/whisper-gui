@@ -1162,7 +1162,12 @@ class TranscriptView(QFrame):
         self._update_playback_time_label(0)
 
         has_media = False
-        if QMediaPlayer is not None and QAudioOutput is not None and track.file_path.is_file():
+        if (
+            QMediaPlayer is not None
+            and QAudioOutput is not None
+            and track.file_path.is_file()
+            and track.file_path.stat().st_size > 0
+        ):
             try:
                 player = QMediaPlayer(self)
                 audio_output = QAudioOutput(self)

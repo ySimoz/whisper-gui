@@ -773,49 +773,53 @@ def test_transcript_view_inline_edit_export(qtbot, tmp_path):
     view = TranscriptView()
     qtbot.addWidget(view)
 
-    assert not view.txt_display.isReadOnly()
+    try:
+        assert not view.txt_display.isReadOnly()
 
-    audio_path = tmp_path / "sample.wav"
-    audio_path.touch()
-    track = AudioTrack(audio_path, AudioInfo(path=audio_path, filename="sample.wav", duration=10.0))
-    seg = TranscriptSegment(start=0.0, end=5.0, text="Original raw text")
-    result = TranscriptionResult(
-        segments=[seg],
-        full_text="Original raw text",
-        polished_text="Original polished text",
-    )
+        audio_path = tmp_path / "sample.wav"
+        audio_path.touch()
+        track = AudioTrack(audio_path, AudioInfo(path=audio_path, filename="sample.wav", duration=10.0))
+        seg = TranscriptSegment(start=0.0, end=5.0, text="Original raw text")
+        result = TranscriptionResult(
+            segments=[seg],
+            full_text="Original raw text",
+            polished_text="Original polished text",
+        )
 
-    view.append_segment(seg)
-    view.set_polished_text(result.polished_text, "test-model")
-    view.set_completed_track(track, result)
+        view.append_segment(seg)
+        view.set_polished_text(result.polished_text, "test-model")
+        view.set_completed_track(track, result)
 
-    view.txt_display.setPlainText("Edited polished text")
-    assert view._polished_text == "Edited polished text"
-    assert result.polished_text == "Edited polished text"
+        view.txt_display.setPlainText("Edited polished text")
+        assert view._polished_text == "Edited polished text"
+        assert result.polished_text == "Edited polished text"
 
-    with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
-        view._on_export_format("txt")
-    txt_out = tmp_path / "sample_transcript.txt"
-    assert txt_out.exists()
-    assert "Edited polished text" in txt_out.read_text(encoding="utf-8")
+        with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
+            view._on_export_format("txt")
+        txt_out = tmp_path / "sample_transcript.txt"
+        assert txt_out.exists()
+        assert "Edited polished text" in txt_out.read_text(encoding="utf-8")
 
-    view.btn_view_raw.click()
-    view.txt_display.setPlainText("Completely edited raw text")
-    assert result.full_text == "Completely edited raw text"
+        view.btn_view_raw.click()
+        view.txt_display.setPlainText("Completely edited raw text")
+        assert result.full_text == "Completely edited raw text"
 
-    result.polished_text = None
-    view._polished_text = None
-    with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
-        view._on_export_format("txt")
-        view._on_export_format("srt")
+        result.polished_text = None
+        view._polished_text = None
+        with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
+            view._on_export_format("txt")
+            view._on_export_format("srt")
 
-    txt_content = txt_out.read_text(encoding="utf-8")
-    assert "Completely edited raw text" in txt_content
-    assert "Original raw text" not in txt_content
+        txt_content = txt_out.read_text(encoding="utf-8")
+        assert "Completely edited raw text" in txt_content
+        assert "Original raw text" not in txt_content
 
-    srt_out = tmp_path / "sample_transcript.srt"
-    assert srt_out.exists()
-    assert "Completely edited raw text" in srt_out.read_text(encoding="utf-8")
+        srt_out = tmp_path / "sample_transcript.srt"
+        assert srt_out.exists()
+        assert "Completely edited raw text" in srt_out.read_text(encoding="utf-8")
+    finally:
+        view.release_player()
+        view.close()
 
 
 def _write_test_wav(path: Path, duration_sec: int = 3, sample_rate: int = 16000) -> None:
@@ -1853,6 +1857,7 @@ def test_waveform_scrubber_and_trim_dialog(qtbot, tmp_path):
 
 
 def test_combobox_popups_single_frame_and_consistent_height(qtbot):
+    import gc
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QComboBox, QFrame, QListView, QStyle, QStyleOptionComboBox
     from whisper_gui.i18n import get_language, set_language
@@ -1867,100 +1872,106 @@ def test_combobox_popups_single_frame_and_consistent_height(qtbot):
         assert "QComboBoxPrivateContainer" in qss
         assert "#qt_scrollarea_vcontainer" in qss
 
-    win = MainWindow()
-    qtbot.addWidget(win)
-    win.resize(1100, 820)
-    win.show()
-    win._open_settings_page()
-    QApplication.processEvents()
+    def _run():
+        win = MainWindow()
+        win.resize(1100, 820)
+        win.show()
+        win._open_settings_page()
+        QApplication.processEvents()
 
-    try:
-        combos = [
-            win.settings_panel.combo_app_language,
-            win.settings_panel.combo_model,
-            win.settings_panel.combo_lang,
-            win.settings_panel.combo_device,
-            win.settings_panel.combo_compute,
-            win.settings_panel.spin_threads,
-            win.settings_panel.combo_export_format,
-            win.llm_panel.combo_provider,
-            win.llm_panel.combo_model,
-            win.llm_panel.combo_preset,
-            win.combo_active_track,
-        ]
-
-        for combo in combos:
-            assert isinstance(combo, QComboBox)
-            assert combo.maxVisibleItems() == 10
-            assert isinstance(combo.view(), QListView)
-            assert combo.view().frameShape() == QFrame.Shape.NoFrame
-            combo.ensurePolished()
-            opt = QStyleOptionComboBox()
-            combo.initStyleOption(opt)
-            assert combo.style().styleHint(QStyle.StyleHint.SH_ComboBox_Popup, opt, combo) == 0
-
-            container = combo.view().parentWidget()
-            assert container is not None
-            assert container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            if sys.platform == "darwin":
-                assert bool(container.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
-            assert container.contentsMargins().isNull()
-
-        # Verify invariant popup size, exact combo width, zero container gap, and scrollbar behavior
-        for theme_name in ("graphite", "blush"):
-            set_theme(theme_name)
-            win.apply_theme()
-            QApplication.processEvents()
-
-            for combo in (
+        try:
+            combos = [
                 win.settings_panel.combo_app_language,
                 win.settings_panel.combo_model,
                 win.settings_panel.combo_lang,
+                win.settings_panel.combo_device,
+                win.settings_panel.combo_compute,
+                win.settings_panel.spin_threads,
+                win.settings_panel.combo_export_format,
+                win.llm_panel.combo_provider,
                 win.llm_panel.combo_model,
+                win.llm_panel.combo_preset,
+                win.combo_active_track,
+            ]
+
+            for combo in combos:
+                assert isinstance(combo, QComboBox)
+                assert combo.maxVisibleItems() == 10
+                assert isinstance(combo.view(), QListView)
+                assert combo.view().frameShape() == QFrame.Shape.NoFrame
+                combo.ensurePolished()
+                opt = QStyleOptionComboBox()
+                combo.initStyleOption(opt)
+                assert combo.style().styleHint(QStyle.StyleHint.SH_ComboBox_Popup, opt, combo) == 0
+
+                container = combo.view().parentWidget()
+                assert container is not None
+                assert container.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                if sys.platform == "darwin":
+                    assert bool(container.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+                assert container.contentsMargins().isNull()
+
+            # Verify invariant popup size, exact combo width, zero container gap, and scrollbar behavior
+            for theme_name in ("graphite", "blush"):
+                set_theme(theme_name)
+                win.apply_theme()
+                QApplication.processEvents()
+
+                for combo in (
+                    win.settings_panel.combo_app_language,
+                    win.settings_panel.combo_model,
+                    win.settings_panel.combo_lang,
+                    win.llm_panel.combo_model,
+                ):
+                    orig_idx = combo.currentIndex()
+                    indices = (
+                        [0, combo.count() // 2, combo.count() - 1]
+                        if combo.count() >= 3
+                        else list(range(combo.count()))
+                    )
+                    geometries = []
+                    combo.blockSignals(True)
+                    try:
+                        for idx in indices:
+                            combo.setCurrentIndex(idx)
+                            combo.showPopup()
+                            QApplication.processEvents()
+
+                            view = combo.view()
+                            container = view.parentWidget()
+                            assert container.isVisible()
+                            assert container.width() == combo.width()
+                            assert view.geometry() == container.rect()
+                            assert not any(
+                                ch.isVisible()
+                                for ch in container.children()
+                                if "Scroller" in ch.metaObject().className() and hasattr(ch, "isVisible")
+                            )
+                            assert view.verticalScrollBar().isVisible() == (combo.count() > combo.maxVisibleItems())
+                            geometries.append((container.x(), container.y(), container.width(), container.height()))
+                            combo.hidePopup()
+                            QApplication.processEvents()
+                    finally:
+                        combo.setCurrentIndex(orig_idx)
+                        combo.blockSignals(False)
+
+                    assert len(set(geometries)) == 1, f"{combo} popup geometry varied by selected index: {geometries}"
+
+            for menu in (
+                win.transcript_view.export_menu,
+                win.transcript_view.polish_preset_menu,
+                win.track_list.export_all_menu,
             ):
-                orig_idx = combo.currentIndex()
-                indices = (
-                    [0, combo.count() // 2, combo.count() - 1]
-                    if combo.count() >= 3
-                    else list(range(combo.count()))
-                )
-                geometries = []
-                combo.blockSignals(True)
-                try:
-                    for idx in indices:
-                        combo.setCurrentIndex(idx)
-                        combo.showPopup()
-                        QApplication.processEvents()
+                assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                if sys.platform == "darwin":
+                    assert bool(menu.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
+        finally:
+            set_language(orig_lang)
+            set_theme(orig_theme)
+            with patch.object(win, "_save_settings"):
+                win.close()
+            win.deleteLater()
+            QApplication.processEvents()
 
-                        view = combo.view()
-                        container = view.parentWidget()
-                        assert container.isVisible()
-                        assert container.width() == combo.width()
-                        assert view.geometry() == container.rect()
-                        assert not any(
-                            ch.isVisible()
-                            for ch in container.children()
-                            if "Scroller" in ch.metaObject().className() and hasattr(ch, "isVisible")
-                        )
-                        assert view.verticalScrollBar().isVisible() == (combo.count() > combo.maxVisibleItems())
-                        geometries.append((container.x(), container.y(), container.width(), container.height()))
-                        combo.hidePopup()
-                        QApplication.processEvents()
-                finally:
-                    combo.setCurrentIndex(orig_idx)
-                    combo.blockSignals(False)
-
-                assert len(set(geometries)) == 1, f"{combo} popup geometry varied by selected index: {geometries}"
-
-        for menu in (
-            win.transcript_view.export_menu,
-            win.transcript_view.polish_preset_menu,
-            win.track_list.export_all_menu,
-        ):
-            assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            if sys.platform == "darwin":
-                assert bool(menu.windowFlags() & Qt.WindowType.NoDropShadowWindowHint)
-    finally:
-        set_language(orig_lang)
-        set_theme(orig_theme)
-        win.close()
+    _run()
+    gc.collect()

@@ -7,6 +7,7 @@ with hairline borders, tabular monospace helpers, and tinted 16px SVG icons.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import weakref
 
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPainterPath, QPixmap
@@ -241,14 +242,14 @@ class _ComboContainerPopupFilter(QObject):
 
     def __init__(self, combo: QComboBox) -> None:
         super().__init__(combo)
-        self._combo = combo
+        self._combo_ref = weakref.ref(combo)
         self._guard = False
 
     def _snap(self, container) -> None:
         if self._guard:
             return
-        combo = self._combo
-        if combo is None:
+        combo = self._combo_ref()
+        if combo is None or container is None:
             return
         self._guard = True
         try:
@@ -290,16 +291,15 @@ def style_combobox(combo: QComboBox, max_visible: int = 10) -> QComboBox:
     container = view.parentWidget()
     if container is not None:
         container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        container.setWindowFlags(container.windowFlags() | Qt.WindowType.NoDropShadowWindowHint)
+        container.setWindowFlag(Qt.WindowType.NoDropShadowWindowHint, True)
         if isinstance(container, QFrame):
             container.setFrameShape(QFrame.Shape.NoFrame)
         container.setContentsMargins(0, 0, 0, 0)
         if container.layout() is not None:
             container.layout().setContentsMargins(0, 0, 0, 0)
-        if not combo.property("_combo_container_filter"):
+        if not any(isinstance(ch, _ComboContainerPopupFilter) for ch in combo.children()):
             popup_filter = _ComboContainerPopupFilter(combo)
             container.installEventFilter(popup_filter)
-            combo.setProperty("_combo_container_filter", popup_filter)
 
     return combo
 

@@ -789,7 +789,12 @@ class TrimAudioDialog(QDialog):
 
     def _init_player(self) -> None:
         has_media = False
-        if QMediaPlayer is not None and QAudioOutput is not None and self.track.file_path.is_file():
+        if (
+            QMediaPlayer is not None
+            and QAudioOutput is not None
+            and self.track.file_path.is_file()
+            and self.track.file_path.stat().st_size > 0
+        ):
             try:
                 player = QMediaPlayer(self)
                 audio_output = QAudioOutput(self)
