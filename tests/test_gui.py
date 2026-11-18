@@ -2109,3 +2109,53 @@ def test_mainwindow_preserves_llm_export_preferences_across_completion_and_pdf_e
     assert "Raw segment one" in txt_with_raw
     with patch.object(win, "_save_settings"):
         win.close()
+
+
+def test_pending_seek_suppresses_stale_signal_and_unwedges_on_expiry(qtbot, tmp_path):
+    """Pending seek ignores stale backend ticks briefly, then clears on direct calls or deadline expiry."""
+    import time
+
+    wav_path = tmp_path / "seek_guard.wav"
+    _write_test_wav(wav_path, duration_sec=4)
+
+    info = AudioInfo(path=wav_path, filename="seek_guard.wav", duration=4.0, sample_rate=16000, channels=1)
+    track = AudioTrack(wav_path, info)
+    track.status = TrackStatus.COMPLETED
+    track.result = TranscriptionResult(
+        segments=[
+            TranscriptSegment(start=0.0, end=1.0, text="Seg zero"),
+            TranscriptSegment(start=1.2, end=2.4, text="Seg one"),
+            TranscriptSegment(start=2.6, end=3.8, text="Seg two"),
+        ],
+        full_text="Seg zero Seg one Seg two",
+        audio_duration=4.0,
+    )
+
+    view = TranscriptView()
+    qtbot.addWidget(view)
+    view.show()
+    view.load_track(track)
+    assert view._player is not None
+
+    # 1. Asynchronous signal from player far from target is ignored within settle window
+    view.seek_to_segment(1, autoplay=False)  # abs target 1200ms
+    assert view._active_segment_idx == 1
+    view._player.positionChanged.emit(0)
+    assert view._active_segment_idx == 1
+    assert view._pending_seek_abs_ms == 1200
+
+    # 2. Expired settle deadline never wedges subsequent player position updates
+    view._pending_seek_deadline = time.monotonic() - 0.1
+    view._player.positionChanged.emit(3500)
+    assert view._pending_seek_abs_ms is None
+    assert view._active_segment_idx == 2
+
+    # 3. Direct call (not async player signal) clears pending seek instead of discarding position
+    view.seek_to_segment(0, autoplay=False)
+    assert view._active_segment_idx == 0
+    view._on_player_position_changed(1500)
+    assert view._pending_seek_abs_ms is None
+    assert view._active_segment_idx == 1
+
+    view.clear_view()
+    view.close()

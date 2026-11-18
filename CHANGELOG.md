@@ -6,6 +6,7 @@
 - **Export Preferences Preserved Across PDF, Markdown, TXT, and DOCX:** Fixed `MainWindow` dropping `LLMConfig` when loading tracks, finishing transcription, or re-polishing, which previously reset *"Include raw transcript"* to `True` and unexpectedly appended `"Trascrizione dettagliata"` / `"Detailed Transcript"` to polished exports even when disabled.
 - **Live Export Config Sync & Cache Invalidation:** Toggling timestamp/raw-appendix/output-folder settings or running post-hoc AI polishing now immediately syncs `TranscriptView` and clears stale cached export files so re-exporting reflects current choices.
 - **Readable Non-Timestamped Raw Sections & Clearer Labels:** Grouped un-timestamped raw segments into flowing paragraphs in PDF exports (matching DOCX), honored timestamp settings in DOCX raw appendices, and updated checkbox labels (`settings.chk_timestamps`, `llm.chk_raw_appendix`) to refer to exported documents rather than Word only.
+- **Playback Seek Guard Stability (`Linux` / `QMediaPlayer`):** Scoped `_pending_seek_abs_ms` suppression to asynchronous backend ticks within a `0.5s` settle deadline and cleared it on player errors, fixing intermittent `test_transcript_view_playback_and_click_to_seek` failures on Ubuntu and preventing stuck segment highlighting after clamped seeks.
 
 ## v0.2.6
 

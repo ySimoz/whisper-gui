@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import html
 from pathlib import Path
+import time
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import (
@@ -108,6 +109,7 @@ class TranscriptView(QFrame):
         self._active_segment_idx: int | None = None
         self._pressed_seek_block: int | None = None
         self._pending_seek_abs_ms: int | None = None
+        self._pending_seek_deadline: float = 0.0
 
         self.setObjectName("transcript_view")
         self._build_ui()
@@ -1224,7 +1226,14 @@ class TranscriptView(QFrame):
         self._update_play_pause_button()
 
     def _on_player_error(self, *_args) -> None:
+        self._pending_seek_abs_ms = None
+        self._pending_seek_deadline = 0.0
         self._update_play_pause_button()
+
+    def _set_pending_seek(self, abs_ms: int) -> None:
+        """Record an expected seek target with a brief settle deadline so stale frames are ignored."""
+        self._pending_seek_abs_ms = abs_ms
+        self._pending_seek_deadline = time.monotonic() + 0.5
 
     def _is_playing(self) -> bool:
         if self._player is None or QMediaPlayer is None:
@@ -1301,7 +1310,7 @@ class TranscriptView(QFrame):
             clamped_rel = min(clamped_rel, self._playback_duration_ms)
         abs_ms = self._slice_start_ms + clamped_rel
         if self._player is not None:
-            self._pending_seek_abs_ms = abs_ms
+            self._set_pending_seek(abs_ms)
             try:
                 self._player.setPosition(abs_ms)
             except Exception:
@@ -1335,7 +1344,7 @@ class TranscriptView(QFrame):
         self.playback_position_changed.emit(rel_ms / 1000.0)
 
         if self._player is not None:
-            self._pending_seek_abs_ms = abs_ms
+            self._set_pending_seek(abs_ms)
             try:
                 self._player.setPosition(abs_ms)
                 if autoplay:
@@ -1355,6 +1364,7 @@ class TranscriptView(QFrame):
             )
         ):
             target = self._pending_seek_abs_ms
+            self._set_pending_seek(target)
             try:
                 self._player.setPosition(target)
             except Exception:
@@ -1387,9 +1397,12 @@ class TranscriptView(QFrame):
 
     def _on_player_position_changed(self, abs_ms: int) -> None:
         if self._pending_seek_abs_ms is not None:
-            if abs(abs_ms - self._pending_seek_abs_ms) > 250:
-                return
+            # Drop only asynchronous pre-seek backend ticks within the settle window
+            if self.sender() is self._player and time.monotonic() <= self._pending_seek_deadline:
+                if abs(abs_ms - self._pending_seek_abs_ms) > 250:
+                    return
             self._pending_seek_abs_ms = None
+            self._pending_seek_deadline = 0.0
 
         if self._slice_end_ms > self._slice_start_ms and abs_ms >= self._slice_end_ms:
             rel_ms = self._slice_end_ms - self._slice_start_ms
@@ -1534,6 +1547,7 @@ class TranscriptView(QFrame):
         """Stop and release QMediaPlayer and QAudioOutput cleanly."""
         self._loaded_audio_path = None
         self._pending_seek_abs_ms = None
+        self._pending_seek_deadline = 0.0
         if self._player is not None:
             try:
                 self._player.blockSignals(True)
