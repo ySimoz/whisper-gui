@@ -894,7 +894,75 @@ def _write_test_wav(path: Path, duration_sec: int = 3, sample_rate: int = 16000)
         wf.writeframes(b"\x00\x00" * (sample_rate * duration_sec))
 
 
-def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path):
+def _patch_stub_media_player(monkeypatch, module_path: str, duration_ms: int = 4000) -> None:
+    """Replace QMediaPlayer/QAudioOutput with a deterministic Qt stub so CI never opens WASAPI/ALSA devices."""
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtMultimedia import QMediaPlayer as _RealPlayer
+
+    class _StubAudioOutput(QObject):
+        def __init__(self, parent=None) -> None:
+            super().__init__(parent)
+
+    class _StubMediaPlayer(QObject):
+        PlaybackState = _RealPlayer.PlaybackState
+        MediaStatus = _RealPlayer.MediaStatus
+        positionChanged = Signal(int)
+        durationChanged = Signal(int)
+        playbackStateChanged = Signal(object)
+        mediaStatusChanged = Signal(object)
+        errorOccurred = Signal(object, str)
+
+        def __init__(self, parent=None) -> None:
+            super().__init__(parent)
+            self._pos_ms = 0
+            self._dur_ms = 0
+            self._rate = 1.0
+            self._state = self.PlaybackState.StoppedState
+
+        def setAudioOutput(self, _out) -> None:
+            pass
+
+        def setSource(self, url) -> None:
+            if url is not None and not url.isEmpty():
+                self._dur_ms = duration_ms
+                self.durationChanged.emit(self._dur_ms)
+                self.mediaStatusChanged.emit(self.MediaStatus.LoadedMedia)
+
+        def setPlaybackRate(self, rate: float) -> None:
+            self._rate = rate
+
+        def playbackState(self):
+            return self._state
+
+        def position(self) -> int:
+            return self._pos_ms
+
+        def duration(self) -> int:
+            return self._dur_ms
+
+        def setPosition(self, pos_ms: int) -> None:
+            self._pos_ms = int(pos_ms)
+            self.positionChanged.emit(self._pos_ms)
+
+        def play(self) -> None:
+            self._state = self.PlaybackState.PlayingState
+            self.playbackStateChanged.emit(self._state)
+
+        def pause(self) -> None:
+            self._state = self.PlaybackState.PausedState
+            self.playbackStateChanged.emit(self._state)
+
+        def stop(self) -> None:
+            self._state = self.PlaybackState.StoppedState
+            self._pos_ms = 0
+            self.playbackStateChanged.emit(self._state)
+
+    monkeypatch.setattr(f"{module_path}.QMediaPlayer", _StubMediaPlayer)
+    monkeypatch.setattr(f"{module_path}.QAudioOutput", _StubAudioOutput)
+
+
+def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path, monkeypatch):
+    _patch_stub_media_player(monkeypatch, "whisper_gui.ui.range_selector", duration_ms=3000)
     wav_path = tmp_path / "preview.wav"
     _write_test_wav(wav_path, duration_sec=3)
 
@@ -906,7 +974,7 @@ def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path):
 
     assert dialog.btn_play_pause.text() == "Play"
     assert dialog.btn_play_selection.text() == "Preview Range"
-    assert dialog.lbl_playback_pos.text() == "00:00:00 / 00:00:00"
+    assert dialog.lbl_playback_pos.text() == "00:00:00 / 00:00:03"
     assert dialog.btn_play_pause.isEnabled()
     assert dialog.btn_play_selection.isEnabled()
     assert dialog._player is not None
@@ -928,12 +996,14 @@ def test_trim_audio_dialog_preview_and_close(qtbot, tmp_path):
     qtbot.waitUntil(lambda: dialog.btn_play_pause.text() == "Play", timeout=2000)
 
     dialog.close()
+    QApplication.processEvents()
     assert dialog._player is None
     assert dialog._audio_output is None
     QApplication.processEvents()
 
 
-def test_trim_audio_dialog_missing_file_and_accept_reject(qtbot, tmp_path):
+def test_trim_audio_dialog_missing_file_and_accept_reject(qtbot, tmp_path, monkeypatch):
+    _patch_stub_media_player(monkeypatch, "whisper_gui.ui.range_selector", duration_ms=2000)
     missing_path = tmp_path / "missing.wav"
     info = AudioInfo(path=missing_path, filename="missing.wav", duration=5.0)
     track = AudioTrack(missing_path, info)
@@ -1683,9 +1753,11 @@ def test_settings_panel_model_download_progress_and_busy_bar(qtbot, tmp_path, mo
     assert view.progress_bar.value() == 42
 
 
-def test_transcript_view_playback_and_click_to_seek(qtbot, tmp_path):
+def test_transcript_view_playback_and_click_to_seek(qtbot, tmp_path, monkeypatch):
     from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QMouseEvent, QTextCursor
+
+    _patch_stub_media_player(monkeypatch, "whisper_gui.ui.transcript_view", duration_ms=4000)
 
     wav_path = tmp_path / "synced.wav"
     _write_test_wav(wav_path, duration_sec=4)
@@ -1916,6 +1988,7 @@ def test_waveform_scrubber_and_trim_dialog(qtbot, tmp_path):
     assert not pm.isNull() and pm.width() > 0 and pm.height() > 0
 
     dialog.close()
+    QApplication.processEvents()
 
 
 def test_combobox_popups_single_frame_and_consistent_height(qtbot):

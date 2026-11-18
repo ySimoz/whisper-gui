@@ -1553,7 +1553,6 @@ class TranscriptView(QFrame):
                 self._player.blockSignals(True)
                 self._player.stop()
                 self._player.setSource(QUrl())
-                self._player.setAudioOutput(None)
             except Exception:
                 pass
             self._player.deleteLater()
