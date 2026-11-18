@@ -2037,3 +2037,75 @@ def test_combobox_popups_single_frame_and_consistent_height(qtbot):
 
     _run()
     gc.collect()
+
+
+def test_mainwindow_preserves_llm_export_preferences_across_completion_and_pdf_export(qtbot, tmp_path):
+    """Disabling chk_raw_appendix and chk_timestamps must hold when exporting PDF/MD/TXT/DOCX."""
+    from unittest.mock import patch
+
+    from whisper_gui.exporters import _build_pdf_html
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.settings_panel.chk_timestamps.setChecked(False)
+    win.llm_panel.chk_enable.setChecked(True)
+    win.llm_panel.chk_raw_appendix.setChecked(False)
+
+    audio_path = tmp_path / "lecture.wav"
+    audio_path.touch()
+    track = AudioTrack(
+        audio_path,
+        AudioInfo(path=audio_path, filename="lecture.wav", duration=60.0),
+    )
+    win.track_list._tracks.append(track)
+    win.track_list._track_map[track.id] = track
+    win.track_list._refresh_table()
+    win._set_active_track(track)
+
+    assert win.transcript_view._current_config is not None
+    assert win.transcript_view._current_config.include_timestamps_in_docx is False
+    assert win.transcript_view._current_config.llm_config.include_raw_in_docx is False
+
+    result = TranscriptionResult(
+        segments=[
+            TranscriptSegment(start=0.0, end=2.0, text="Raw segment one"),
+            TranscriptSegment(start=2.0, end=4.0, text="Raw segment two"),
+        ],
+        full_text="Raw segment one Raw segment two",
+        polished_text="Polished summary paragraph.",
+        llm_model_used="deepseek-flash",
+    )
+    win._on_worker_track_completed(track.id, result)
+
+    cfg_after = win.transcript_view._current_config
+    assert cfg_after is not None
+    assert cfg_after.include_timestamps_in_docx is False
+    assert cfg_after.llm_config.include_raw_in_docx is False
+
+    pdf_html = _build_pdf_html(track.info, track.slice_config, cfg_after, result)
+    assert "Polished summary paragraph." in pdf_html
+    assert "Detailed Transcript" not in pdf_html
+    assert "Raw segment one" not in pdf_html
+
+    with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
+        win.transcript_view._on_export_format("pdf")
+        win.transcript_view._on_export_format("txt")
+
+    txt_content = (tmp_path / "lecture_transcript.txt").read_text(encoding="utf-8")
+    assert "Polished summary paragraph." in txt_content
+    assert "DETAILED TRANSCRIPT" not in txt_content
+    assert "Raw segment one" not in txt_content
+
+    # Re-enabling chk_raw_appendix live invalidates stale cache and regenerates with detailed section
+    win.llm_panel.chk_raw_appendix.setChecked(True)
+    assert "pdf" not in win.transcript_view._exported_paths
+    assert "txt" not in win.transcript_view._exported_paths
+    assert result.pdf_path is None
+    assert win.transcript_view._current_config.llm_config.include_raw_in_docx is True
+
+    with patch("whisper_gui.ui.transcript_view.open_path_in_os", return_value=False):
+        win.transcript_view._on_export_format("txt")
+    txt_with_raw = (tmp_path / "lecture_transcript.txt").read_text(encoding="utf-8")
+    assert "Raw segment one" in txt_with_raw
+    with patch.object(win, "_save_settings"):
+        win.close()

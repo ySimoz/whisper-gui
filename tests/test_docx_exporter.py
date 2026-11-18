@@ -174,3 +174,30 @@ def test_export_transcript_to_docx_polished(tmp_path: Path):
     assert "Today we discussed the system architecture." in doc_text
     assert "Appendix: Original Raw Transcript (with Timestamps)" in doc_text
     assert "[00:00 → 00:04]" in doc_text
+
+
+def test_export_transcript_to_docx_polished_without_raw_appendix(tmp_path: Path):
+    from whisper_gui.models import LLMConfig
+
+    docx_file = tmp_path / "polished_no_raw.docx"
+    track_info = AudioInfo(path=Path("/recordings/meeting.m4a"), filename="meeting.m4a", duration=120.0)
+    slice_cfg = SliceConfig(mode=SliceMode.FULL, start_sec=0.0, end_sec=120.0)
+    tx_cfg = TranscriptionConfig(
+        model_name="large-v3-turbo",
+        include_timestamps_in_docx=False,
+        llm_config=LLMConfig(enabled=True, include_raw_in_docx=False),
+    )
+    result = TranscriptionResult(
+        segments=[TranscriptSegment(start=0.0, end=4.0, text="Ehm, raw segment words.")],
+        full_text="Ehm, raw segment words.",
+        polished_text="Polished final text.",
+        llm_model_used="deepseek-v4.1-flash",
+    )
+
+    export_transcript_to_docx(docx_file, track_info, slice_cfg, tx_cfg, result)
+    doc = Document(str(docx_file))
+    doc_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Polished final text." in doc_text
+    assert "Appendix: Original Raw Transcript" not in doc_text
+    assert "Ehm, raw segment words." not in doc_text
+    assert "[00:00" not in doc_text

@@ -710,16 +710,41 @@ class TranscriptView(QFrame):
         match_num = positions.index(sel_start) + 1 if sel_start in positions else 1
         self.lbl_find_status.setText(tr("transcript.find_count", current=match_num, total=len(positions)))
 
-    def _on_text_changed(self) -> None:
-        if self._updating_text:
-            return
-        edited = self.txt_display.toPlainText()
-        self._exported_paths.clear()
+    def invalidate_document_exports(self) -> None:
+        """Clear cached document export paths so the next export regenerates them."""
+        for fmt in ("docx", "pdf", "md", "txt"):
+            self._exported_paths.pop(fmt, None)
+        self._current_docx_path = None
         if self._current_result is not None:
             self._current_result.docx_path = None
             self._current_result.pdf_path = None
             self._current_result.md_path = None
             self._current_result.txt_path = None
+
+    def set_export_config(self, config: TranscriptionConfig) -> None:
+        """Keep export config synced with Settings/LLM panels and drop stale caches on option changes."""
+        prev = self._current_config
+        self._current_config = config
+        if prev is None:
+            return
+        prev_raw = prev.llm_config.include_raw_in_docx if prev.llm_config else True
+        new_raw = config.llm_config.include_raw_in_docx if config.llm_config else True
+        if (
+            prev.include_timestamps_in_docx != config.include_timestamps_in_docx
+            or prev_raw != new_raw
+            or prev.output_dir != config.output_dir
+        ):
+            self.invalidate_document_exports()
+            if prev.output_dir != config.output_dir:
+                self._exported_paths.pop("srt", None)
+                self._exported_paths.pop("vtt", None)
+
+    def _on_text_changed(self) -> None:
+        if self._updating_text:
+            return
+        edited = self.txt_display.toPlainText()
+        self._exported_paths.clear()
+        self.invalidate_document_exports()
         if self._active_mode == "polished":
             self._polished_text = edited
             if self._current_result is not None:

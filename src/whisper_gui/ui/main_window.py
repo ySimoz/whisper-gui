@@ -511,6 +511,7 @@ class MainWindow(QMainWindow):
         self.settings_panel.check_updates_requested.connect(lambda: self._check_for_updates(manual=True))
         self.settings_panel.theme_changed.connect(self._on_theme_changed)
         self.settings_panel.app_language_changed.connect(self._on_app_language_changed)
+        self.settings_panel.settings_changed.connect(self._sync_transcript_export_config)
         self.settings_panel.combo_model.currentIndexChanged.connect(self._on_model_changed)
         self.llm_panel.chk_enable.toggled.connect(self._on_llm_panel_enable_toggled)
         self.llm_panel.config_changed.connect(self._on_llm_config_changed)
@@ -745,8 +746,18 @@ class MainWindow(QMainWindow):
         self.settings_page.scroll_to_llm()
         QTimer.singleShot(0, self.settings_page.scroll_to_llm)
 
+    def _build_transcription_config(self) -> TranscriptionConfig:
+        """Assemble the active transcription config with current LLM export preferences."""
+        config = self.settings_panel.get_config()
+        config.llm_config = self.llm_panel.get_config()
+        return config
+
+    def _sync_transcript_export_config(self) -> None:
+        self.transcript_view.set_export_config(self._build_transcription_config())
+
     def _on_llm_config_changed(self) -> None:
         self.transcript_view.sync_polish_preset(self.llm_panel.active_prompt_preset())
+        self._sync_transcript_export_config()
 
     def _on_transcript_preset_selected(self, preset_id: str) -> None:
         self.llm_panel.set_prompt_preset(preset_id)
@@ -782,7 +793,7 @@ class MainWindow(QMainWindow):
     def _on_transcript_exported(self, track: object) -> None:
         if isinstance(track, AudioTrack) and track.result is not None:
             try:
-                self.history_store.save_track(track, self.settings_panel.get_config())
+                self.history_store.save_track(track, self._build_transcription_config())
             except Exception:
                 pass
 
@@ -792,8 +803,7 @@ class MainWindow(QMainWindow):
         target_dir: Path | None = None,
     ) -> tuple[list[Path], list[tuple[str, str]]]:
         """Batch export all completed tracks in the queue to the specified format."""
-        config = self.settings_panel.get_config()
-        config.llm_config = self.llm_panel.get_config()
+        config = self._build_transcription_config()
         resolved_fmt = (fmt or config.export_format or "docx").lower().lstrip(".")
         dest_dir = target_dir if target_dir is not None else config.output_dir
 
@@ -846,7 +856,7 @@ class MainWindow(QMainWindow):
         return saved_paths, errors
 
     def _on_export_all_requested(self, fmt: str, target_dir: object) -> None:
-        config = self.settings_panel.get_config()
+        config = self._build_transcription_config()
         resolved_fmt = (fmt or config.export_format or "docx").lower().lstrip(".")
         dest_dir = target_dir if isinstance(target_dir, Path) else None
         saved, errors = self.export_completed_tracks(fmt=resolved_fmt, target_dir=dest_dir)
@@ -977,7 +987,7 @@ class MainWindow(QMainWindow):
             and prev_track.status in (TrackStatus.SLICING, TrackStatus.TRANSCRIBING)
         )
         if not streaming_to_other:
-            self.transcript_view.load_track(track, self.settings_panel.get_config())
+            self.transcript_view.load_track(track, self._build_transcription_config())
 
         self._update_active_track_labels(track)
         if track is None:
@@ -1087,7 +1097,7 @@ class MainWindow(QMainWindow):
             else:
                 return
 
-        config = self.settings_panel.get_config()
+        config = self._build_transcription_config()
         config.llm_config = llm_cfg
         self.transcript_view.clear_view()
 
@@ -1207,11 +1217,12 @@ class MainWindow(QMainWindow):
     def _on_worker_track_completed(self, track_id: str, result: TranscriptionResult) -> None:
         self._stop_polish_timer()
         track = self.track_list.get_track(track_id)
+        active_config = self._build_transcription_config()
         if track:
             track.result = result
             track.status = TrackStatus.COMPLETED
             try:
-                self.history_store.save_track(track, self.settings_panel.get_config())
+                self.history_store.save_track(track, active_config)
             except Exception:
                 pass
         self.track_list.refresh_track_display(track_id)
@@ -1225,7 +1236,7 @@ class MainWindow(QMainWindow):
                 self.transcript_view.show_polish_error(result.llm_error)
             if track:
                 self.transcript_view.set_completed_track(
-                    track, result, self.settings_panel.get_config()
+                    track, result, active_config
                 )
                 self.transcript_view.set_progress(100)
                 self.transcript_view.lbl_metrics.setText("")
@@ -1326,12 +1337,21 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(bool(self.current_worker and self.current_worker.isRunning()))
         track = self.track_list.get_track(track_id)
+        active_config = self._build_transcription_config()
         if track and track.result:
+            # Polishing produces a new primary text, so prior unpolished exports must regenerate
+            track.output_docx_path = None
+            track.result.docx_path = None
+            track.result.pdf_path = None
+            track.result.md_path = None
+            track.result.txt_path = None
             try:
-                self.history_store.save_track(track, self.settings_panel.get_config())
+                self.history_store.save_track(track, active_config)
             except Exception:
                 pass
         if self._active_track is None or self._active_track.id == track_id:
+            self.transcript_view.invalidate_document_exports()
+            self.transcript_view.set_export_config(active_config)
             self.transcript_view.set_polished_text(
                 result.polished_text or "", result.llm_model_used or ""
             )

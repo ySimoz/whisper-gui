@@ -35,6 +35,25 @@ def _set_cell_margins(cell, top=100, bottom=100, left=150, right=150) -> None:
     tcPr.append(tcMar)
 
 
+def _add_grouped_segment_paragraphs(doc: Document, segments) -> None:
+    """Group Whisper segments into flowing paragraphs when timestamps are disabled."""
+    buf: list[str] = []
+    for seg in segments:
+        seg_text = seg.text.strip()
+        if not seg_text:
+            continue
+        buf.append(seg_text)
+        if len(buf) >= 4 or seg_text.endswith((".", "!", "?")):
+            p = doc.add_paragraph(" ".join(buf))
+            p.paragraph_format.line_spacing = 1.15
+            p.paragraph_format.space_after = Pt(8)
+            buf = []
+    if buf:
+        p = doc.add_paragraph(" ".join(buf))
+        p.paragraph_format.line_spacing = 1.15
+        p.paragraph_format.space_after = Pt(8)
+
+
 def export_transcript_to_docx(
     output_path: str | Path,
     track_info: AudioInfo,
@@ -205,26 +224,29 @@ def export_transcript_to_docx(
             app_run.font.color.rgb = RGBColor(108, 117, 125)
 
             if result.segments:
-                for seg in result.segments:
-                    seg_text = seg.text.strip()
-                    if not seg_text:
-                        continue
-                    p = doc.add_paragraph()
-                    p.paragraph_format.line_spacing = 1.15
-                    p.paragraph_format.space_after = Pt(4)
+                if transcription_config.include_timestamps_in_docx:
+                    for seg in result.segments:
+                        seg_text = seg.text.strip()
+                        if not seg_text:
+                            continue
+                        p = doc.add_paragraph()
+                        p.paragraph_format.line_spacing = 1.15
+                        p.paragraph_format.space_after = Pt(4)
 
-                    actual_start = start_sec + seg.start
-                    actual_end = start_sec + seg.end
-                    ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
+                        actual_start = start_sec + seg.start
+                        actual_end = start_sec + seg.end
+                        ts_str = f"[{format_seconds(actual_start)} → {format_seconds(actual_end)}] "
 
-                    ts_run = p.add_run(ts_str)
-                    ts_run.font.bold = True
-                    ts_run.font.size = Pt(9.0)
-                    ts_run.font.color.rgb = RGBColor(140, 150, 160)
+                        ts_run = p.add_run(ts_str)
+                        ts_run.font.bold = True
+                        ts_run.font.size = Pt(9.0)
+                        ts_run.font.color.rgb = RGBColor(140, 150, 160)
 
-                    text_run = p.add_run(seg_text)
-                    text_run.font.size = Pt(10)
-                    text_run.font.color.rgb = RGBColor(60, 65, 70)
+                        text_run = p.add_run(seg_text)
+                        text_run.font.size = Pt(10)
+                        text_run.font.color.rgb = RGBColor(60, 65, 70)
+                else:
+                    _add_grouped_segment_paragraphs(doc, result.segments)
             else:
                 p = doc.add_paragraph(result.full_text.strip())
                 p.paragraph_format.line_spacing = 1.15
@@ -270,22 +292,7 @@ def export_transcript_to_docx(
                     text_run = p.add_run(seg_text)
                     text_run.font.size = Pt(11)
             else:
-                current_paragraph_texts: list[str] = []
-                for seg in result.segments:
-                    seg_text = seg.text.strip()
-                    if not seg_text:
-                        continue
-                    current_paragraph_texts.append(seg_text)
-                    if len(current_paragraph_texts) >= 4 or seg_text.endswith((".", "!", "?")):
-                        p = doc.add_paragraph(" ".join(current_paragraph_texts))
-                        p.paragraph_format.line_spacing = 1.15
-                        p.paragraph_format.space_after = Pt(8)
-                        current_paragraph_texts = []
-
-                if current_paragraph_texts:
-                    p = doc.add_paragraph(" ".join(current_paragraph_texts))
-                    p.paragraph_format.line_spacing = 1.15
-                    p.paragraph_format.space_after = Pt(8)
+                _add_grouped_segment_paragraphs(doc, result.segments)
 
     try:
         doc.save(str(out_file))

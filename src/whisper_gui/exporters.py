@@ -30,6 +30,38 @@ def _get_slice_desc(slice_config: SliceConfig | None, duration: float) -> str:
     return f"{format_seconds(start_sec)} - {format_seconds(end_sec)} ({format_seconds(slice_dur)})"
 
 
+def _resolve_export_options(
+    transcription_config: TranscriptionConfig | None,
+    result: TranscriptionResult | None,
+) -> tuple[bool, bool, bool]:
+    """Return ``(has_polished, include_raw, include_timestamps)`` for document exports."""
+    has_polished = bool(result and result.polished_text and result.polished_text.strip())
+    include_timestamps = True
+    include_raw = True
+    if transcription_config:
+        include_timestamps = transcription_config.include_timestamps_in_docx
+        if transcription_config.llm_config and has_polished:
+            include_raw = transcription_config.llm_config.include_raw_in_docx
+    return has_polished, include_raw, include_timestamps
+
+
+def _group_segments_into_paragraphs(segments) -> list[str]:
+    """Group short Whisper segments into flowing paragraphs when timestamps are omitted."""
+    paragraphs: list[str] = []
+    buf: list[str] = []
+    for seg in segments:
+        seg_text = seg.text.strip()
+        if not seg_text:
+            continue
+        buf.append(seg_text)
+        if len(buf) >= 4 or seg_text.endswith((".", "!", "?")):
+            paragraphs.append(" ".join(buf))
+            buf = []
+    if buf:
+        paragraphs.append(" ".join(buf))
+    return paragraphs
+
+
 def export_transcript_to_txt(
     output_path: str | Path,
     track_info: AudioInfo | None = None,
@@ -66,23 +98,19 @@ def export_transcript_to_txt(
     lines.append("-" * 60)
     lines.append("")
 
+    has_polished, include_raw, include_timestamps = _resolve_export_options(transcription_config, result)
+
     # 1. Polished Text
-    if result and result.polished_text:
+    if has_polished:
+        assert result is not None and result.polished_text is not None
         model_name = result.llm_model_used or tr("export.ai_polisher")
         lines.append(tr("export.txt.polished_section", model=model_name))
         lines.append(result.polished_text.strip())
         lines.append("")
 
     # 2. Raw Transcript
-    include_raw = True
-    include_timestamps = True
-    if transcription_config:
-        include_timestamps = transcription_config.include_timestamps_in_docx
-        if transcription_config.llm_config and result and result.polished_text:
-            include_raw = transcription_config.llm_config.include_raw_in_docx
-
     if result and include_raw:
-        if result.polished_text:
+        if has_polished:
             lines.append(tr("export.txt.detailed_section"))
 
         if result.segments:
@@ -133,8 +161,11 @@ def export_transcript_to_md(
 
     lines.append("")
 
+    has_polished, include_raw, include_timestamps = _resolve_export_options(transcription_config, result)
+
     # 1. Polished Text
-    if result and result.polished_text:
+    if has_polished:
+        assert result is not None and result.polished_text is not None
         model_name = result.llm_model_used or tr("export.ai_polisher")
         lines.append(tr("export.md.polished_section", model=model_name))
         lines.append("")
@@ -142,13 +173,6 @@ def export_transcript_to_md(
         lines.append("")
 
     # 2. Detailed Segments
-    include_raw = True
-    include_timestamps = True
-    if transcription_config:
-        include_timestamps = transcription_config.include_timestamps_in_docx
-        if transcription_config.llm_config and result and result.polished_text:
-            include_raw = transcription_config.llm_config.include_raw_in_docx
-
     if result and include_raw:
         lines.append(tr("export.md.detailed_section"))
         lines.append("")
@@ -167,20 +191,13 @@ def export_transcript_to_md(
     return out_file
 
 
-def export_transcript_to_pdf(
-    output_path: str | Path,
+def _build_pdf_html(
     track_info: AudioInfo | None = None,
     slice_config: SliceConfig | None = None,
     transcription_config: TranscriptionConfig | None = None,
     result: TranscriptionResult | None = None,
-) -> Path:
-    """Export the transcription to a publication-quality PDF using QPdfWriter and QTextDocument."""
-    out_file = Path(output_path).resolve()
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Ensure QApplication instance exists for QTextDocument / QPdfWriter
-    _ = QApplication.instance() or QApplication([])
-
+) -> str:
+    """Build the HTML document rendered to PDF."""
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     source_filename = html.escape(track_info.filename) if track_info else tr("export.pdf.default_source")
     duration_str = track_info.duration_formatted if track_info else "--:--"
@@ -215,6 +232,7 @@ def export_transcript_to_pdf(
         "  table.seg-table td { padding: 4px 0; vertical-align: top; }",
         "  .seg-time { color: #2563EB; font-weight: bold; font-family: 'Courier New', Courier, monospace; font-size: 8.5pt; width: 130px; white-space: nowrap; }",
         "  .seg-text { color: #1E293B; font-size: 9.5pt; padding-left: 8px; }",
+        "  p.raw-para { color: #1E293B; font-size: 9.5pt; line-height: 1.55; margin: 0 0 8px 0; }",
         "</style>",
         "</head>",
         "<body>",
@@ -232,44 +250,57 @@ def export_transcript_to_pdf(
         "  </table>",
     ]
 
+    has_polished, include_raw, include_timestamps = _resolve_export_options(transcription_config, result)
+
     # Polished speech section
-    if result and result.polished_text:
+    if has_polished:
+        assert result is not None and result.polished_text is not None
         model_name = html.escape(result.llm_model_used or tr("export.ai_polisher"))
         html_parts.append(f"  <h2>{html.escape(tr('export.pdf.polished_section', model=model_name))}</h2>")
         polished_html = html.escape(result.polished_text.strip()).replace("\n\n", "</p><p>").replace("\n", "<br>")
         html_parts.append(f"  <div class='polished-box'><p>{polished_html}</p></div>")
 
-    # Detailed transcript section
-    include_raw = True
-    include_timestamps = True
-    if transcription_config:
-        include_timestamps = transcription_config.include_timestamps_in_docx
-        if transcription_config.llm_config and result and result.polished_text:
-            include_raw = transcription_config.llm_config.include_raw_in_docx
-
+    # Detailed transcript section (omitted when polished + include_raw_in_docx disabled)
     if result and include_raw:
         html_parts.append(f"  <h2>{html.escape(tr('export.pdf.detailed_section'))}</h2>")
         if result.segments:
-            html_parts.append("  <table class='seg-table' cellpadding='3' cellspacing='0'>")
-            for seg in result.segments:
-                seg_text = html.escape(seg.text)
-                if include_timestamps:
+            if include_timestamps:
+                html_parts.append("  <table class='seg-table' cellpadding='3' cellspacing='0'>")
+                for seg in result.segments:
+                    seg_text = html.escape(seg.text)
                     time_badge = html.escape(seg.formatted_timerange)
                     html_parts.append(
                         f"    <tr><td class='seg-time'>{time_badge}</td><td class='seg-text'>{seg_text}</td></tr>"
                     )
-                else:
-                    html_parts.append(f"    <tr><td colspan='2' class='seg-text'>{seg_text}</td></tr>")
-            html_parts.append("  </table>")
+                html_parts.append("  </table>")
+            else:
+                for para in _group_segments_into_paragraphs(result.segments):
+                    html_parts.append(f"  <p class='raw-para'>{html.escape(para)}</p>")
         elif result.full_text:
             escaped_full = html.escape(result.full_text.strip()).replace("\n", "<br>")
             html_parts.append(f"  <p>{escaped_full}</p>")
 
     html_parts.append("</body>")
     html_parts.append("</html>")
+    return "\n".join(html_parts)
+
+
+def export_transcript_to_pdf(
+    output_path: str | Path,
+    track_info: AudioInfo | None = None,
+    slice_config: SliceConfig | None = None,
+    transcription_config: TranscriptionConfig | None = None,
+    result: TranscriptionResult | None = None,
+) -> Path:
+    """Export the transcription to a publication-quality PDF using QPdfWriter and QTextDocument."""
+    out_file = Path(output_path).resolve()
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Ensure QApplication instance exists for QTextDocument / QPdfWriter
+    _ = QApplication.instance() or QApplication([])
 
     doc = QTextDocument()
-    doc.setHtml("\n".join(html_parts))
+    doc.setHtml(_build_pdf_html(track_info, slice_config, transcription_config, result))
 
     writer = QPdfWriter(str(out_file))
     writer.setPageSize(QPageSize(QPageSize.A4))

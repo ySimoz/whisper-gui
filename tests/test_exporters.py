@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from whisper_gui.exporters import (
+    _build_pdf_html,
     export_transcript,
     export_transcript_to_docx,
     export_transcript_to_md,
@@ -13,6 +14,7 @@ from whisper_gui.exporters import (
 )
 from whisper_gui.models import (
     AudioInfo,
+    LLMConfig,
     SliceConfig,
     SliceMode,
     TranscriptSegment,
@@ -149,3 +151,43 @@ def test_export_transcript_dispatcher(tmp_path: Path):
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "Unsupported export format" in str(e)
+
+
+def test_polished_exports_omit_detailed_raw_when_disabled(tmp_path: Path):
+    track_info, slice_cfg, tx_cfg, result = _make_sample_data()
+    tx_cfg.include_timestamps_in_docx = False
+    tx_cfg.llm_config = LLMConfig(enabled=True, include_raw_in_docx=False)
+
+    pdf_html = _build_pdf_html(track_info, slice_cfg, tx_cfg, result)
+    assert "Thank you for inviting me today." in pdf_html
+    assert "Detailed Transcript" not in pdf_html
+    assert "Thank you for having me today." not in pdf_html
+
+    pdf_path = export_transcript_to_pdf(tmp_path / "polished_only.pdf", track_info, slice_cfg, tx_cfg, result)
+    assert pdf_path.exists() and pdf_path.stat().st_size > 1000
+
+    txt_content = export_transcript_to_txt(tmp_path / "polished_only.txt", track_info, slice_cfg, tx_cfg, result).read_text(encoding="utf-8")
+    assert "Thank you for inviting me today." in txt_content
+    assert "DETAILED TRANSCRIPT" not in txt_content
+    assert "Thank you for having me today." not in txt_content
+
+    md_content = export_transcript_to_md(tmp_path / "polished_only.md", track_info, slice_cfg, tx_cfg, result).read_text(encoding="utf-8")
+    assert "Thank you for inviting me today." in md_content
+    assert "Detailed Transcript" not in md_content
+    assert "Thank you for having me today." not in md_content
+
+
+def test_pdf_html_without_timestamps_groups_paragraphs():
+    track_info, slice_cfg, tx_cfg, _ = _make_sample_data()
+    tx_cfg.include_timestamps_in_docx = False
+    raw_only = TranscriptionResult(
+        segments=[
+            TranscriptSegment(start=0.0, end=2.0, text="First clause"),
+            TranscriptSegment(start=2.0, end=4.0, text="second clause."),
+        ],
+        full_text="First clause second clause.",
+    )
+
+    pdf_html = _build_pdf_html(track_info, slice_cfg, tx_cfg, raw_only)
+    assert "<p class='raw-para'>First clause second clause.</p>" in pdf_html
+    assert "<table class='seg-table'" not in pdf_html
